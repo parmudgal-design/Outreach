@@ -236,15 +236,15 @@
   .badge.sent { background: var(--primary-tint); color: var(--primary-dark); }
   .badge.replied { background: #DDEBFF; color: #2A5C99; }
   .badge.adopted { background: #E1F3E1; color: #2E7D32; }
-  .badge.declined { background: #F4E1E0; color: var(--danger); }
+  .badge.declined, .badge.unsubscribed { background: #F4E1E0; color: var(--danger); }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) .badge.replied { background: #1B2A3D; color: #8FB6E8; }
     :root:not([data-theme="light"]) .badge.adopted { background: #1B3320; color: #8FD19E; }
-    :root:not([data-theme="light"]) .badge.declined { background: #33201F; color: #E08672; }
+    :root:not([data-theme="light"]) .badge.declined, :root:not([data-theme="light"]) .badge.unsubscribed { background: #33201F; color: #E08672; }
   }
   :root[data-theme="dark"] .badge.replied { background: #1B2A3D; color: #8FB6E8; }
   :root[data-theme="dark"] .badge.adopted { background: #1B3320; color: #8FD19E; }
-  :root[data-theme="dark"] .badge.declined { background: #33201F; color: #E08672; }
+  :root[data-theme="dark"] .badge.declined, :root[data-theme="dark"] .badge.unsubscribed { background: #33201F; color: #E08672; }
 
   select.status-select {
     font-size: 12.5px;
@@ -259,7 +259,7 @@
   }
   .empty-state .serif { font-size: 18px; color: var(--ink); display: block; margin-bottom: 6px; }
 
-  .funnel { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+  .funnel { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 20px; }
   .funnel .fcell {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -295,6 +295,13 @@
 
   .draft-box textarea.subject { font-weight: 600; }
   .draft-box textarea.body { min-height: 260px; }
+
+  .qa-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 14px; background: var(--bg); }
+  .qa-box h4 { margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+  .qa-box ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+  .qa-box li.error { color: var(--danger); }
+  .qa-box li.warn { color: var(--accent); }
+  .qa-box .ok { font-size: 13px; color: var(--primary-dark); }
 
   .status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); min-height: 20px; margin-top: 8px;}
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
@@ -498,6 +505,17 @@
           <span class="status-line" id="complianceSaved"></span>
         </div>
       </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 4px 0;font-size:16px;">Backup</h3>
+        <p class="hint" style="margin:0 0 14px 0;">Everything here — setup, contacts, drafts, statuses and the opt-out list — lives only in this browser. Clearing site data or switching device loses it. Export a backup file now and then, or to move your list to another browser.</p>
+        <div class="btn-row">
+          <button class="btn secondary" id="exportBackup">Export backup</button>
+          <button class="btn secondary" id="importBackup">Import backup…</button>
+          <input type="file" id="importFile" accept=".json,application/json" style="display:none;">
+          <span class="status-line" id="backupStatus"></span>
+        </div>
+      </div>
     </section>
 
     <!-- CONTACTS -->
@@ -603,7 +621,7 @@
 
       <div class="card">
         <h3 style="margin:0 0 10px 0;font-size:16px;">Queue — <span id="queueCount">0</span> eligible</h3>
-        <p class="hint" style="margin:0 0 12px 0;">Contacts with status "Not started" or "Drafted", a valid email, and not marked declined/unsubscribed.</p>
+        <p class="hint" style="margin:0 0 12px 0;">Contacts with status "Not started" or "Drafted", a valid email, and not on the opt-out list.</p>
         <div class="table-wrap" style="margin-bottom:14px;">
           <table>
             <thead><tr><th>Name</th><th>Specialty</th><th>Status</th></tr></thead>
@@ -611,9 +629,11 @@
           </table>
         </div>
         <div class="btn-row">
+          <button class="btn secondary" id="draftQueueBtn">Draft queued contacts</button>
           <button class="btn" id="runBatchBtn" disabled>Run batch</button>
           <span class="status-line" id="batchStatus"></span>
         </div>
+        <p class="hint">"Draft queued contacts" writes an AI draft for each queued contact that doesn't have one yet (up to the max per run), so you can review them all in Compose before anything is sent.</p>
       </div>
     </section>
   </main>
@@ -626,8 +646,8 @@
   "use strict";
 
   var STORAGE_KEY = "drtracker_outreach_v1";
-  var STATUS_ORDER = ["new","drafted","sent","replied","adopted","declined"];
-  var STATUS_LABEL = {new:"Not started", drafted:"Drafted", sent:"Sent", replied:"Replied", adopted:"Adopted", declined:"Declined"};
+  var STATUS_ORDER = ["new","drafted","sent","replied","adopted","declined","unsubscribed"];
+  var STATUS_LABEL = {new:"Not started", drafted:"Drafted", sent:"Sent", replied:"Replied", adopted:"Adopted", declined:"Declined", unsubscribed:"Unsubscribed"};
   var TYPE_META = {
     doctor:   { label: "Doctor",           emoji: "🩺", specialtyLabel: "Specialty",          clinicLabel: "Clinic / Hospital",     specialtyPh: "Cardiology",                 clinicPh: "Apollo Hospitals",                namePh: "Dr. Aditi Sharma",  notesLabel: "Notes (used to personalize the email)",                              notesPh: "e.g. Runs a busy OPD, mentioned follow-up no-shows are a pain point at a recent conference", badgeClass: "sent" },
     hospital: { label: "Hospital",         emoji: "🏥", specialtyLabel: "Contact's role",      clinicLabel: "Hospital name",         specialtyPh: "Medical Superintendent",     clinicPh: "Navjeevan Multispecialty Hospital", namePh: "Dr. Rakesh Malhotra", notesLabel: "Notes (readmission challenges, NABH status, expansion, etc.)",       notesPh: "e.g. Expanding to a second campus, under pressure to cut avoidable readmissions", badgeClass: "replied" },
@@ -642,22 +662,28 @@
   function load(){
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        parsed.setup.companyPitch = parsed.setup.companyPitch || "";
-        parsed.setup.companyValueProps = parsed.setup.companyValueProps || ["", ""];
-        parsed.setup.hospitalPitch = parsed.setup.hospitalPitch || "";
-        parsed.setup.hospitalValueProps = parsed.setup.hospitalValueProps || ["", ""];
-        parsed.setup.partnerPitch = parsed.setup.partnerPitch || "";
-        parsed.setup.partnerValueProps = parsed.setup.partnerValueProps || ["", ""];
-        (parsed.contacts||[]).forEach(function(c){ if(!c.type) c.type = "doctor"; });
-        return parsed;
-      }
+      if (raw) return normalize(JSON.parse(raw));
     } catch(e) {}
     return {
       setup: { senderName:"", senderRole:"", senderEmail:"", senderPhone:"", tone:"direct", language:"english", pitch:"", valueProps:["", ""], companyPitch:"", companyValueProps:["", ""], hospitalPitch:"", hospitalValueProps:["", ""], partnerPitch:"", partnerValueProps:["", ""], mailingAddress:"" },
-      contacts: []
+      contacts: [],
+      // Lower-cased emails that asked not to be contacted (DPDP consent withdrawal).
+      // Kept even if the contact is deleted, so they can't be re-imported by accident.
+      suppressed: []
     };
+  }
+  // Fill in fields added after older saves/backups were written.
+  function normalize(parsed){
+    parsed.setup.valueProps = parsed.setup.valueProps || ["", ""];
+    parsed.setup.companyPitch = parsed.setup.companyPitch || "";
+    parsed.setup.companyValueProps = parsed.setup.companyValueProps || ["", ""];
+    parsed.setup.hospitalPitch = parsed.setup.hospitalPitch || "";
+    parsed.setup.hospitalValueProps = parsed.setup.hospitalValueProps || ["", ""];
+    parsed.setup.partnerPitch = parsed.setup.partnerPitch || "";
+    parsed.setup.partnerValueProps = parsed.setup.partnerValueProps || ["", ""];
+    (parsed.contacts||[]).forEach(function(c){ if(!c.type) c.type = "doctor"; });
+    parsed.suppressed = parsed.suppressed || [];
+    return parsed;
   }
   function save(){
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
@@ -683,9 +709,12 @@
   });
 
   function complianceFooter(){
-    var addr = state.setup.mailingAddress;
+    var s = state.setup;
+    var addr = s.mailingAddress;
     var lines = [];
     lines.push("---");
+    var who = [s.senderName, s.senderRole].filter(Boolean).join(", ");
+    lines.push("Sent by " + (who || "the Dr.Tracker team") + (s.senderEmail ? " <" + s.senderEmail + ">" : ""));
     if (addr) lines.push(addr);
     lines.push("Don't want emails like this from Dr.Tracker? Reply \"unsubscribe\" and we'll stop.");
     return lines.join("\n");
@@ -793,6 +822,20 @@
     if(!e) return null;
     return state.contacts.find(function(c){ return c.email.trim().toLowerCase() === e; }) || null;
   }
+  function isSuppressed(email){
+    return state.suppressed.indexOf((email||"").trim().toLowerCase()) > -1;
+  }
+  function setStatus(c, status){
+    var e = c.email.trim().toLowerCase();
+    if(status === "unsubscribed"){
+      if(state.suppressed.indexOf(e) === -1) state.suppressed.push(e);
+    } else if(c.status === "unsubscribed"){
+      if(!confirm(c.email + " asked not to be contacted. Only move them off Unsubscribed if they've clearly opted back in. Continue?")) return false;
+      state.suppressed = state.suppressed.filter(function(x){ return x !== e; });
+    }
+    c.status = status; c.lastUpdated = Date.now();
+    return true;
+  }
 
   /* ---------------- Contacts ---------------- */
   function renderContacts(){
@@ -827,7 +870,7 @@
     var del = e.target.closest("[data-del]");
     var comp = e.target.closest("[data-compose]");
     if(del){
-      if(confirm("Remove this contact and any draft you've written for them?")){
+      if(confirm("Remove this contact and any draft you've written for them? (If they unsubscribed, their email stays on the opt-out list.)")){
         state.contacts = state.contacts.filter(function(c){ return c.id !== del.dataset.del; });
         save(); renderContacts(); renderSideStats();
       }
@@ -882,6 +925,7 @@
       var name = document.getElementById("mName").value.trim();
       var email = document.getElementById("mEmail").value.trim();
       if(!name || !email){ alert("Name and email are required."); return; }
+      if(isSuppressed(email)){ alert("That email is on the opt-out list — they asked not to be contacted, so it wasn't added."); return; }
       if(findDuplicate(email)){ alert("That email is already in your contacts — no duplicate added."); return; }
       state.contacts.push({
         id: uid(), type: document.getElementById("mType").value, name: name, specialty: document.getElementById("mSpecialty").value.trim(),
@@ -904,7 +948,7 @@
     document.getElementById("mSave").addEventListener("click", function(){
       var raw = document.getElementById("mPaste").value;
       var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
-      var added = 0, skippedDupes = 0;
+      var added = 0, skippedDupes = 0, skippedOptOut = 0;
       lines.forEach(function(line){
         var parts = line.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(function(p){ return p.trim(); });
         if(parts.length < 4) return;
@@ -916,6 +960,7 @@
           email = parts[3]||""; notes = parts[4]||"";
         }
         if(email.indexOf("@") === -1) return;
+        if(isSuppressed(email)){ skippedOptOut++; return; }
         if(findDuplicate(email)){ skippedDupes++; return; }
         state.contacts.push({
           id: uid(), type: "doctor", name: name, specialty: specialty, clinic: clinic, city: city,
@@ -924,8 +969,8 @@
         added++;
       });
       save(); closeModal(); renderContacts(); renderSideStats();
-      var msg = added + " added" + (skippedDupes ? ", " + skippedDupes + " skipped as duplicates" : "") + ".";
-      if(added===0 && skippedDupes===0) msg = "Couldn't find any valid rows — check that each line has at least name, specialty, clinic, email.";
+      var msg = added + " added" + (skippedDupes ? ", " + skippedDupes + " skipped as duplicates" : "") + (skippedOptOut ? ", " + skippedOptOut + " skipped (on the opt-out list)" : "") + ".";
+      if(added===0 && skippedDupes===0 && skippedOptOut===0) msg = "Couldn't find any valid rows — check that each line has at least name, specialty, clinic, email.";
       alert(msg);
     });
   });
@@ -961,22 +1006,26 @@
     var main = document.getElementById("composeMain");
     if(!c){ main.innerHTML = ""; return; }
     var missingSetup = !state.setup.pitch;
+    var optedOut = isSuppressed(c.email) || c.status === "declined";
     main.innerHTML =
       '<div class="card draft-box">'+
         '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">'+
           '<div><strong style="font-size:15px;">'+esc(c.name)+'</strong> <span class="badge '+(TYPE_META[c.type]||TYPE_META.doctor).badgeClass+'" style="margin-left:4px;">'+(TYPE_META[c.type]||TYPE_META.doctor).label+'</span><br><span style="color:var(--ink-soft);font-size:13px;">'+esc(c.specialty||"—")+' · '+esc(c.clinic||"—")+(c.city ? " · "+esc(c.city) : "")+' · '+esc(c.email)+'</span></div>'+
           '<span class="badge '+c.status+'">'+STATUS_LABEL[c.status]+'</span>'+
         '</div>'+
+        (optedOut ? '<p class="hint" style="margin-top:12px;color:var(--danger);">'+(isSuppressed(c.email) ? "This person asked not to be contacted. Sending is turned off for them." : "Marked declined. Sending is turned off. Change the status if that's wrong.")+'</p>' : '') +
         (missingSetup ? '<p class="hint" style="margin-top:12px;">Tip: fill in <em>Setup</em> first so drafts mention what Dr.Tracker actually does — otherwise the draft will stay generic.</p>' : '') +
         '<div class="btn-row" style="margin-top:16px;">'+
           '<button class="btn" id="genBtn">'+(c.draftBody ? "Regenerate draft" : "Generate draft")+'</button>'+
           '<span class="status-line" id="genStatus"></span>'+
         '</div>'+
         '<div class="field" style="margin-top:16px;"><label>Subject</label><textarea class="subject" id="draftSubject" rows="1">'+esc(c.draftSubject)+'</textarea></div>'+
-        '<div class="field"><label>Body</label><textarea class="body" id="draftBody">'+esc(c.draftBody)+'</textarea></div>'+
+        '<div class="field"><label>Body</label><textarea class="body" id="draftBody">'+esc(c.draftBody)+'</textarea>'+
+          '<p class="hint">The compliance footer (who it\'s from, your address, how to opt out) is added below this when you copy or send.</p></div>'+
+        '<div class="qa-box" id="qaBox"></div>'+
         '<div class="btn-row">'+
-          '<button class="btn secondary" id="copyBtn">Copy email</button>'+
-          '<button class="btn secondary" id="mailtoBtn">Open in email app</button>'+
+          '<button class="btn secondary" id="copyBtn"'+(optedOut ? ' disabled' : '')+'>Copy email</button>'+
+          '<button class="btn secondary" id="mailtoBtn"'+(optedOut ? ' disabled' : '')+'>Open in email app</button>'+
           '<select class="status-select" id="statusSelect" style="margin-left:auto;"></select>'+
         '</div>'+
       '</div>';
@@ -989,20 +1038,23 @@
       statusSel.appendChild(o);
     });
     statusSel.addEventListener("change", function(){
-      c.status = statusSel.value; c.lastUpdated = Date.now();
+      setStatus(c, statusSel.value);
       save(); renderComposeMain(); renderContacts(); renderSideStats();
     });
 
-    document.getElementById("draftSubject").addEventListener("input", function(e){ c.draftSubject = e.target.value; save(); });
-    document.getElementById("draftBody").addEventListener("input", function(e){ c.draftBody = e.target.value; save(); });
+    document.getElementById("draftSubject").addEventListener("input", function(e){ c.draftSubject = e.target.value; save(); renderQa(c); });
+    document.getElementById("draftBody").addEventListener("input", function(e){ c.draftBody = e.target.value; save(); renderQa(c); });
+    renderQa(c);
 
     document.getElementById("copyBtn").addEventListener("click", function(){
+      if(!confirmQa(c)) return;
       var text = "Subject: " + c.draftSubject + "\n\n" + c.draftBody + "\n\n" + complianceFooter();
       navigator.clipboard.writeText(text).then(function(){
         flashStatus("genStatus", "Copied to clipboard.");
       }).catch(function(){ flashStatus("genStatus", "Couldn't copy — select and copy manually."); });
     });
     document.getElementById("mailtoBtn").addEventListener("click", function(){
+      if(!confirmQa(c)) return;
       var fullBody = c.draftBody + "\n\n" + complianceFooter();
       var url = "mailto:" + encodeURIComponent(c.email) + "?subject=" + encodeURIComponent(c.draftSubject) + "&body=" + encodeURIComponent(fullBody);
       window.location.href = url;
@@ -1012,6 +1064,47 @@
     });
 
     document.getElementById("genBtn").addEventListener("click", function(){ generateDraft(c); });
+  }
+
+  /* ---------------- Pre-send check ----------------
+     AI drafts are only as accurate as Setup. These are cheap heuristics that
+     catch the usual problems before a human skims the draft. */
+  var URGENCY_RE = /\b(limited time|last chance|act now|only \d+ (spots|slots|places)|expires|hurry|don'?t miss)\b/i;
+  var PLACEHOLDER_RE = /\[[^\]]{1,40}\]|\{[^}]{1,40}\}|\(not given|\(unknown\)|lorem ipsum/i;
+  var FIGURE_RE = /\d[\d,.]*\s*(%|percent|x\b|times\b|lakh|crore|k\b)|\b\d{3,}(,\d{3})*\+?\s+(doctors|patients|hospitals|clinics|users)/gi;
+
+  function qaCheck(c){
+    var out = [];
+    var subj = (c.draftSubject||"").trim(), body = (c.draftBody||"").trim();
+    if(!subj) out.push({level:"error", msg:"No subject line."});
+    if(!body){ out.push({level:"error", msg:"No body yet — generate a draft or write one."}); return out; }
+    if(PLACEHOLDER_RE.test(subj + " " + body)) out.push({level:"error", msg:"Looks like a placeholder was left in (e.g. [Name] or \"(not given)\")."});
+    var surname = (c.name||"").replace(/^(dr\.?|mr\.?|ms\.?|mrs\.?)\s+/i, "").trim().split(/\s+/).pop();
+    if(surname && surname.length > 1 && body.toLowerCase().indexOf(surname.toLowerCase()) === -1) out.push({level:"warn", msg:"Doesn't mention " + surname + " by name — check the greeting."});
+    var words = body.split(/\s+/).length;
+    if(words > 240) out.push({level:"warn", msg:words + " words — long for a cold email. Cut it down so it reads in under a minute."});
+    if(subj.split(/\s+/).length > 12) out.push({level:"warn", msg:"Subject is long — under ~9 words usually does better."});
+    var known = [state.setup.pitch, state.setup.companyPitch, state.setup.hospitalPitch, state.setup.partnerPitch,
+      (state.setup.valueProps||[]).join(" "), (state.setup.companyValueProps||[]).join(" "),
+      (state.setup.hospitalValueProps||[]).join(" "), (state.setup.partnerValueProps||[]).join(" "), c.notes].join(" ").toLowerCase();
+    var figs = (body.match(FIGURE_RE) || []).filter(function(f){ return known.indexOf(f.toLowerCase().trim()) === -1; });
+    if(figs.length) out.push({level:"warn", msg:"Mentions figures not in Setup or notes (" + figs.slice(0,3).join(", ") + ") — make sure they're real."});
+    if(URGENCY_RE.test(subj + " " + body)) out.push({level:"warn", msg:"Uses pressure language (deadlines, scarcity). Take it out and keep the tone honest."});
+    if(!state.setup.mailingAddress) out.push({level:"warn", msg:"No business address in Setup → Compliance footer."});
+    return out;
+  }
+  function renderQa(c){
+    var box = document.getElementById("qaBox");
+    if(!box) return;
+    var issues = qaCheck(c);
+    box.innerHTML = '<h4>Pre-send check</h4>' + (issues.length ?
+      '<ul>' + issues.map(function(i){ return '<li class="'+i.level+'">'+esc(i.msg)+'</li>'; }).join("") + '</ul>' :
+      '<div class="ok">Looks good. Give it a quick read before you send.</div>');
+  }
+  function confirmQa(c){
+    var errs = qaCheck(c).filter(function(i){ return i.level === "error"; });
+    if(!errs.length) return true;
+    return confirm("This draft has problems:\n\n• " + errs.map(function(i){ return i.msg; }).join("\n• ") + "\n\nSend anyway?");
   }
 
   function flashStatus(id, msg){
@@ -1025,17 +1118,34 @@
     var s = state.setup;
     var toneDesc = { direct: "direct and brief — a busy reader should be able to read it in 20 seconds", warm: "warm and personable, still respectful of their time", formal: "formal and clinical in register" }[s.tone] || "direct and brief";
     var langDesc = { english: "professional Indian English", hinglish: "mostly English with a few natural Hindi words or phrases mixed in, the way many Indian professionals write to each other — not forced, not gimmicky", hindi: "Hindi, written in Devanagari script, professional register" }[s.language] || "professional Indian English";
+    var signoff = s.tone === "formal" ? "Best regards," : (s.tone === "warm" ? "Warmly," : "Best,");
+    var sigLine2 = [s.senderRole, s.senderPhone].filter(Boolean).join(" · ");
     var sharedRules = "Write ONE email. Return ONLY minified JSON, no markdown fences, no commentary, matching exactly: {\"subject\": string, \"body\": string}. " +
-      "The body should be plain text (no HTML), under 170 words, and sign off with the sender's name, role and phone number on their own lines at the end (do not include the sender's email in the sign-off, it's already in the From address). " +
-      "Write in: " + langDesc + ". Tone: " + toneDesc + ". " +
-      "Aim for genuine emotional resonance: ground the email in a concrete, plausible, low-key scenario about what's at stake (a missed symptom, a patient who didn't call, a moment of doubt) rather than abstract feature talk — but do not fabricate specific statistics, named testimonials, or claims about outcomes that weren't given to you below, and do not manufacture urgency or scarcity (no fake deadlines, no \"only X spots left\"). Earn the emotion honestly, from the real stakes of the situation, not from pressure tactics.\n\n" +
+      "Write in: " + langDesc + ". Tone: " + toneDesc + ".\n\n" +
+      "WHAT MAKES THESE EMAILS WORK — follow this shape:\n" +
+      "1. SUBJECT: 3–9 words, a story hook or a sharp question drawn from the recipient's own world (e.g. \"She called three days too late\", \"The swelling she waited four days to mention\", \"Who notices when a patient goes quiet?\"). Never the product name, never \"Introducing…\", \"Quick question\" or \"Partnership opportunity\", no emoji, no ALL CAPS, no exclamation marks, no clickbait that the body doesn't pay off.\n" +
+      "2. OPENING (2–4 sentences): drop the reader straight into a concrete, plausible, low-key scene that fits THIS recipient — their specialty, their kind of institution, their product — e.g. a patient who feels slightly off after a visit and waits, a discharge that quietly goes wrong. Present tense, specific small details, no statistics. Do not open with who you are or \"I hope this finds you well\".\n" +
+      "3. THE GAP (1–2 sentences): name the real problem that scene shows, in words the reader would use themselves, and acknowledge they already know it.\n" +
+      "4. THE ANSWER (one short paragraph): what Dr.Tracker does about exactly that gap, using only the facts given below. Concrete and plain; say what it is NOT (another dashboard, extra admin) if that helps.\n" +
+      "5. THE ASK (one or two sentences): one clear, low-effort next step with a specific format and length (e.g. \"15 minutes, no slides, a live walkthrough on your phone\"). Ask a question they can answer in one line. Don't assume their calendar.\n" +
+      "6. SIGN-OFF, exactly: \"" + signoff + "\" on its own line, then the sender's name on the next line, then \"" + (sigLine2 || "(role)") + "\" on the line after (omit anything not given; never include the sender's email).\n" +
+      "7. P.S.: one line offering an even lower-commitment alternative (e.g. reply \"video\" for a 2-minute walkthrough, or a one-page proposal to circulate internally).\n" +
+      "Short paragraphs separated by blank lines. Plain text, no HTML, no bullet lists. Body 140–210 words including sign-off and P.S.\n" +
+      "HONESTY RULES: the emotion must come from the real stakes, never from pressure. Do not invent statistics, numbers, network sizes, named customers, testimonials or outcome claims that aren't given below. No fake urgency or scarcity (no deadlines, no \"only X spots left\"). No clinical efficacy claims unless given below.\n\n" +
+      "STYLE REFERENCE — for rhythm and structure only; do NOT reuse its scenario, subject or phrases:\n" +
+      "Subject: She called three days too late\n" +
+      "Namaste Dr. Sharma,\n\nPicture this: a patient leaves your clinic feeling fine. Two days later, something feels off — a little breathless, a little tired. She waits. \"It's probably nothing,\" she tells herself. By the time she calls, it isn't nothing.\n\n" +
+      "You've lived this story more times than you'd like. The space between visits is where things go quiet — and where they can quietly go wrong.\n\n" +
+      "That's the exact gap Dr.Tracker was built to close. Patients check in between appointments — symptoms, vitals, the small stuff they'd normally sit on — and you get a quiet flag the moment something needs your eyes. No new dashboard to babysit. No extra admin.\n\n" +
+      "I'd love to show you what this looks like inside a real OPD — 15 minutes, no slides, just a live walkthrough on your phone. When's a good time this week?\n\n" +
+      "Warmly,\nAnanya Gupta\nFounder, Dr.Tracker · +91 98765 43210\n\nP.S. If a call feels like a big ask right now, just reply \"video\" and I'll send a 2-minute look instead.\n\n" +
       "SENDER:\nName: " + (s.senderName||"(not given)") + "\nRole: " + (s.senderRole||"(not given)") + "\nPhone: " + (s.senderPhone||"(not given, omit from sign-off)") + "\n\n";
 
     if (c.type === "hospital") {
       var hprops = (s.hospitalValueProps||[]).filter(Boolean);
       return "You write short institutional-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to hospital leadership (medical superintendent, CEO, or clinical governance) proposing a pilot of Dr.Tracker across the hospital's doctors and departments, not just one clinician. " +
         sharedRules +
-        "Address the recipient respectfully by name (\"Dr. [Surname]\" if their role/notes indicate they're a clinician, otherwise \"Mr./Ms. [Surname]\"). Frame the stakes in terms a hospital administrator actually tracks — readmissions, discharge follow-up, bed turnover, accreditation/quality standards, doctor workload — not just one patient's story. End with a clear one-line ask for a short meeting with clinical/hospital leadership — do not assume their calendar or imply a deadline. " +
+        "Address the recipient respectfully by name (\"Dr. [Surname]\" if their role/notes indicate they're a clinician, otherwise \"Mr./Ms. [Surname]\"). Open with a discharge scene set at their hospital (use its name), then widen to the stakes a hospital administrator actually tracks — readmissions, discharge follow-up, bed turnover, NABH/quality standards, doctor workload. Ask for ~20 minutes with them and their clinical leadership to walk through what a pilot could look like for their hospital; the P.S. can offer a one-page pilot proposal to circulate internally. " +
         "Do not use a clinical/medical efficacy claim unless explicitly given below.\n\n" +
         "WHAT DR.TRACKER OFFERS A HOSPITAL: " + (s.hospitalPitch || "(not given — keep the pitch generic and light)") + "\n" +
         (hprops.length ? "Reasons a hospital would pilot it:\n- " + hprops.join("\n- ") + "\n" : "") + "\n" +
@@ -1047,7 +1157,7 @@
       var pprops = (s.partnerValueProps||[]).filter(Boolean);
       return "You write short partnership-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker. IMPORTANT — this pitch runs in the OPPOSITE direction from a normal partnership email: Dr.Tracker is NOT asking to adopt the recipient's product, and is NOT asking the recipient to adopt Dr.Tracker. Instead, Dr.Tracker is offering its own growing network of engaged specialists and clinic doctors as a channel — proposing that the recipient's company partner with Dr.Tracker so that doctors already on the platform can trial, recommend, or prescribe/use the recipient's product as part of the between-visit care they're already giving. " +
         sharedRules +
-        "Address the recipient by first name in a professional Indian business-email register. Make explicit that the value on offer is access to Dr.Tracker's doctor network, not a request for the recipient's product or money. End with a clear one-line ask for a short call to explore fit — do not assume their calendar or imply a deadline. " +
+        "Address the recipient by first name in a professional Indian business-email register. Open with the moment a doctor on our side tells a patient to monitor something at home — and the patient has nothing good to do it with — tied to what their product does. Make explicit that the value on offer is access to Dr.Tracker's doctor network, not a request for the recipient's product or money. Ask for ~20 minutes to see if there's a fit; the P.S. can offer to share which specialties would be the strongest early fit. " +
         "Do not fabricate the size of the doctor network (no invented numbers) — describe it only in the general, honest terms given below. Do not use a clinical/medical efficacy claim about the recipient's product unless explicitly given below.\n\n" +
         "WHAT DR.TRACKER'S DOCTOR NETWORK OFFERS A PRODUCT COMPANY: " + (s.partnerPitch || "(not given — keep it generic: a network of specialists already engaged in between-visit patient monitoring)") + "\n" +
         (pprops.length ? "Reasons a product company would want this:\n- " + pprops.join("\n- ") + "\n" : "") + "\n" +
@@ -1059,7 +1169,7 @@
       var cprops = (s.companyValueProps||[]).filter(Boolean);
       return "You write short partnership-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to a decision-maker (partnerships, clinical leadership, or ops) at a hospital chain, diagnostic network, insurer, or health-tech company in India, proposing that their organisation partner with or adopt Dr.Tracker for their doctors/patients. " +
         sharedRules +
-        "Address the recipient by first name in a professional Indian business-email register (not \"Dr.\" unless their role/notes indicate they're a clinician). End with a clear one-line ask for a short call/meeting with the right stakeholders — do not assume you know their calendar or imply a deadline. " +
+        "Address the recipient by first name in a professional Indian business-email register (not \"Dr.\" unless their role/notes indicate they're a clinician). Open with a patient somewhere in their network sitting on a symptom they're not sure is worth mentioning, and make the stakes about whether that patient still trusts the network was watching. Ask for ~20 minutes with their clinical leadership; the P.S. can offer a short async demo video to route internally. " +
         "Do not use a clinical/medical efficacy claim unless explicitly given below.\n\n" +
         "WHAT DR.TRACKER OFFERS A PARTNER COMPANY: " + (s.companyPitch || "(not given — keep the pitch generic and light)") + "\n" +
         (cprops.length ? "Reasons a company would partner:\n- " + cprops.join("\n- ") + "\n" : "") + "\n" +
@@ -1070,12 +1180,32 @@
     var props = (s.valueProps||[]).filter(Boolean);
     return "You write short outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to specialists and clinic doctors across India, inviting them to try the product themselves. " +
       sharedRules +
-      "End with a clear one-line ask (e.g. offering a 15-minute call or a free trial). Address the recipient as \"Dr. [Surname]\" in the salutation, which is the standard respectful form used in Indian professional correspondence. " +
+      "Greet them as \"" + (s.tone === "formal" ? "Dear" : "Namaste") + " Dr. [Surname],\" (the standard respectful form in Indian professional correspondence). Build the opening scene from THEIR specialty — e.g. post-op swelling for an orthopaedic surgeon, breathlessness for a cardiologist, a missed sugar spike for an endocrinologist — and weave in their notes if given. Ask for 15 minutes with a live walkthrough, and offer the reply-\"video\" alternative in the P.S. " +
       "Do not use claims that sound like a clinical/medical efficacy claim unless explicitly given in the product description.\n\n" +
       "PRODUCT (Dr.Tracker) — what it does: " + (s.pitch || "(not given — keep the pitch generic and light)") + "\n" +
       (props.length ? "Reasons a specialist would adopt it:\n- " + props.join("\n- ") + "\n" : "") + "\n" +
       "RECIPIENT:\nName: " + c.name + "\nSpecialty: " + (c.specialty||"(unknown)") + "\nClinic/Hospital: " + (c.clinic||"(unknown)") + "\nCity: " + (c.city||"(unknown)") + "\n" +
       (c.notes ? "Notes about them: " + c.notes + "\n" : "");
+  }
+
+  // Resolves true when a draft was written onto c; rejects with {code} otherwise.
+  function draftFor(c){
+    return sampleFn.json(buildPrompt(c), { modelTier: "default" }).then(function(result){
+      var data = result && result.value ? result.value : result;
+      if(!(data && data.subject && data.body)) throw { code: "bad_shape" };
+      c.draftSubject = data.subject;
+      c.draftBody = data.body;
+      if(c.status === "new") c.status = "drafted";
+      c.lastUpdated = Date.now();
+      save();
+      return true;
+    });
+  }
+  function draftErrorText(err){
+    return (err && err.code === "not_granted") ? "AI drafting isn't permitted here." :
+      (err && err.code === "rate_limited") ? "Rate limited — wait a moment and try again." :
+      (err && err.code === "bad_shape") ? "Got an unexpected response — try again." :
+      "Couldn't generate a draft — try again.";
   }
 
   function generateDraft(c){
@@ -1087,24 +1217,12 @@
     }
     genBtn.disabled = true;
     status.textContent = "Drafting…";
-    sampleFn.json(buildPrompt(c), { modelTier: "default" }).then(function(result){
-      var data = result && result.value ? result.value : result;
-      if(data && data.subject && data.body){
-        c.draftSubject = data.subject;
-        c.draftBody = data.body;
-        if(c.status === "new") c.status = "drafted";
-        c.lastUpdated = Date.now();
-        save();
-        renderComposeMain();
-        renderContacts();
-        renderSideStats();
-      } else {
-        status.textContent = "Got an unexpected response — try again.";
-      }
+    draftFor(c).then(function(){
+      renderComposeMain();
+      renderContacts();
+      renderSideStats();
     }).catch(function(err){
-      status.textContent = (err && err.code === "not_granted") ? "AI drafting isn't permitted here." :
-        (err && err.code === "rate_limited") ? "Rate limited — wait a moment and try again." :
-        "Couldn't generate a draft — try again.";
+      status.textContent = draftErrorText(err);
     }).finally(function(){
       genBtn.disabled = false;
     });
@@ -1116,7 +1234,7 @@
     state.contacts.forEach(function(c){ counts[c.status] = (counts[c.status]||0)+1; });
 
     var funnel = document.getElementById("funnel");
-    var stages = [["new","Not started"],["drafted","Drafted"],["sent","Sent"],["replied","Replied"],["adopted","Adopted"]];
+    var stages = [["new","Not started"],["drafted","Drafted"],["sent","Sent"],["replied","Replied"],["adopted","Adopted"],["unsubscribed","Opted out"]];
     funnel.innerHTML = stages.map(function(s){
       return '<div class="fcell"><div class="n">'+(counts[s[0]]||0)+'</div><div class="l">'+s[1]+'</div></div>';
     }).join("");
@@ -1167,7 +1285,7 @@
 
   function eligibleQueue(){
     return state.contacts.filter(function(c){
-      return (c.status === "new" || c.status === "drafted") && c.email && c.email.indexOf("@") > -1;
+      return (c.status === "new" || c.status === "drafted") && c.email && c.email.indexOf("@") > -1 && !isSuppressed(c.email);
     });
   }
 
@@ -1197,9 +1315,72 @@
     }
   }
 
+  var drafting = false, stopDrafting = false;
+  document.getElementById("draftQueueBtn").addEventListener("click", function(){
+    var btn = this, line = document.getElementById("batchStatus");
+    if(drafting){ stopDrafting = true; line.textContent = "Stopping after this one…"; return; }
+    if(!sampleFn){ line.textContent = "AI drafting isn't available in this view."; return; }
+    var cap = Math.max(1, parseInt(document.getElementById("batchCap").value, 10) || 20);
+    var todo = eligibleQueue().filter(function(c){ return !c.draftBody; }).slice(0, cap);
+    if(!todo.length){ line.textContent = "Every queued contact already has a draft."; return; }
+    drafting = true; stopDrafting = false;
+    btn.textContent = "Stop drafting";
+    var done = 0, failed = 0;
+    (function next(i){
+      if(i >= todo.length || stopDrafting){
+        drafting = false; btn.textContent = "Draft queued contacts";
+        line.textContent = done + " drafted" + (failed ? ", " + failed + " failed" : "") + ". Review them in Compose before sending.";
+        renderAutosend(); renderContacts(); renderSideStats();
+        return;
+      }
+      line.textContent = "Drafting " + (i+1) + " of " + todo.length + " — " + todo[i].name + "…";
+      draftFor(todo[i]).then(function(){ done++; next(i+1); }).catch(function(err){
+        failed++;
+        // A missing grant or rate limit will fail every remaining call too — stop instead of hammering.
+        if(err && (err.code === "not_granted" || err.code === "rate_limited")){ stopDrafting = true; line.textContent = draftErrorText(err); }
+        next(i+1);
+      });
+    })(0);
+  });
+
   document.getElementById("runBatchBtn").addEventListener("click", function(){
     // Intentionally not implemented until the Gmail send call has been
     // observed and verified in chat — see status message above.
+  });
+
+  /* ---------------- Backup ---------------- */
+  var downloadsNs = null;
+  document.getElementById("exportBackup").addEventListener("click", function(){
+    var line = document.getElementById("backupStatus");
+    var data = JSON.stringify({ app: "drtracker-outreach", version: 1, exportedAt: new Date().toISOString(), state: state }, null, 2);
+    var filename = "drtracker-outreach-backup-" + new Date().toISOString().slice(0,10) + ".json";
+    if(downloadsNs){
+      downloadsNs.save({ filename: filename, data: data }).then(function(){ flashStatus("backupStatus", "Backup saved."); })
+        .catch(function(err){ line.textContent = (err && err.code === "declined") ? "Export cancelled." : "Couldn't save the file here."; });
+      return;
+    }
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    flashStatus("backupStatus", "Backup downloaded.");
+  });
+  document.getElementById("importBackup").addEventListener("click", function(){ document.getElementById("importFile").click(); });
+  document.getElementById("importFile").addEventListener("change", function(e){
+    var file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if(!file) return;
+    file.text().then(function(txt){
+      var parsed = JSON.parse(txt);
+      var incoming = parsed && parsed.state;
+      if(!incoming || !incoming.setup || !Array.isArray(incoming.contacts)) throw new Error("shape");
+      if(!confirm("Replace everything in this browser with the backup (" + incoming.contacts.length + " contacts)? This can't be undone.")) return;
+      state = normalize(incoming);
+      save();
+      selectedContactId = null;
+      fillSetupForm(); renderContacts(); renderSideStats();
+      flashStatus("backupStatus", "Backup imported.");
+    }).catch(function(){ document.getElementById("backupStatus").textContent = "That file isn't a Dr.Tracker Outreach backup."; });
   });
 
   /* ---------------- Sidebar stats ---------------- */
@@ -1220,6 +1401,7 @@
 
   if (window.claude && typeof window.claude.use === "function") {
     window.claude.use("sample").then(function(ns){ sampleFn = ns; }).catch(function(){ sampleFn = null; });
+    window.claude.use("downloads").then(function(ns){ downloadsNs = ns; }).catch(function(){ downloadsNs = null; });
   }
 })();
 </script>
