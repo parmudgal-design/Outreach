@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Outreach — Dr.Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F2F5F3;
+    --surface: #FFFFFF;
+    --surface-2: #EAEFEC;
+    --ink: #16241F;
+    --ink-soft: #4B5D57;
+    --border: #D8E1DC;
+    --primary: #2F6F63;
+    --primary-dark: #1F4F46;
+    --primary-tint: #E4EFEB;
+    --accent: #B85C2E;
+    --accent-tint: #F6E9DE;
+    --danger: #A6432F;
+    --focus: #2F6F63;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #121917;
+      --surface: #182220;
+      --surface-2: #1F2B28;
+      --ink: #E9EFEC;
+      --ink-soft: #A8B8B1;
+      --border: #2B3833;
+      --primary: #6FBBA6;
+      --primary-dark: #8FCDBB;
+      --primary-tint: #1C2E29;
+      --accent: #E0925C;
+      --accent-tint: #2E2115;
+      --danger: #E08672;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #121917;
+    --surface: #182220;
+    --surface-2: #1F2B28;
+    --ink: #E9EFEC;
+    --ink-soft: #A8B8B1;
+    --border: #2B3833;
+    --primary: #6FBBA6;
+    --primary-dark: #8FCDBB;
+    --primary-tint: #1C2E29;
+    --accent: #E0925C;
+    --accent-tint: #2E2115;
+    --danger: #E08672;
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, .serif { font-family: "Source Serif 4", Georgia, serif; }
+  a { color: var(--primary-dark); }
+
+  .app {
+    display: flex;
+    min-height: 100%;
+  }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 22px 16px;
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand {
+    padding: 0 6px 18px 6px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+  }
+  .brand .mark {
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+  }
+  .brand h1 {
+    font-size: 21px;
+    font-weight: 600;
+    margin: 2px 0 0 0;
+    line-height: 1.2;
+  }
+  nav.tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  nav.tabs button {
+    all: unset;
+    cursor: pointer;
+    padding: 9px 10px;
+    border-radius: 7px;
+    font-size: 14.5px;
+    color: var(--ink-soft);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  nav.tabs button svg { width: 16px; height: 16px; flex-shrink: 0; }
+  nav.tabs button:hover { background: var(--surface-2); color: var(--ink); }
+  nav.tabs button.active { background: var(--primary-tint); color: var(--primary-dark); font-weight: 600; }
+
+  .side-stats {
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .side-stats .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12.5px;
+    color: var(--ink-soft);
+    padding: 3px 6px;
+  }
+  .side-stats .stat-row strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- Main ---- */
+  main {
+    flex: 1;
+    min-width: 0;
+    padding: 34px 40px 60px 40px;
+    max-width: 980px;
+  }
+  .page-head { margin-bottom: 26px; }
+  .page-head h2 { font-size: 26px; font-weight: 600; margin: 0 0 6px 0; }
+  .page-head p { margin: 0; color: var(--ink-soft); font-size: 14.5px; max-width: 62ch; line-height: 1.5; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px;
+  }
+  .card + .card { margin-top: 16px; }
+
+  label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-soft); margin-bottom: 5px; }
+  input[type=text], input[type=email], textarea, select {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14.5px;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--ink);
+  }
+  input:focus, textarea:focus, select:focus, button:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 1px;
+  }
+  textarea { resize: vertical; line-height: 1.5; }
+  .field { margin-bottom: 14px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .hint { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; }
+
+  .btn {
+    all: unset;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 9px 15px;
+    border-radius: 7px;
+    background: var(--primary);
+    color: #fff;
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn.secondary { background: var(--surface-2); color: var(--ink); border: 1px solid var(--border); }
+  .btn.secondary:hover { background: var(--border); }
+  .btn.ghost { background: transparent; color: var(--primary-dark); padding: 9px 6px; }
+  .btn.ghost:hover { text-decoration: underline; }
+  .btn.danger { background: transparent; color: var(--danger); padding: 9px 6px; }
+  .btn.danger:hover { text-decoration: underline; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  .bullet-list { display: flex; flex-direction: column; gap: 8px; }
+  .bullet-row { display: flex; gap: 8px; align-items: center; }
+  .bullet-row input { flex: 1; }
+
+  /* ---- Table ---- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; font-size: 14px; }
+  thead th {
+    text-align: left;
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-weight: 600;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  .name-cell strong { display: block; }
+  .name-cell span { color: var(--ink-soft); font-size: 12.5px; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge.new { background: var(--surface-2); color: var(--ink-soft); }
+  .badge.drafted { background: var(--accent-tint); color: var(--accent); }
+  .badge.sent { background: var(--primary-tint); color: var(--primary-dark); }
+  .badge.replied { background: #DDEBFF; color: #2A5C99; }
+  .badge.adopted { background: #E1F3E1; color: #2E7D32; }
+  .badge.declined { background: #F4E1E0; color: var(--danger); }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .badge.replied { background: #1B2A3D; color: #8FB6E8; }
+    :root:not([data-theme="light"]) .badge.adopted { background: #1B3320; color: #8FD19E; }
+    :root:not([data-theme="light"]) .badge.declined { background: #33201F; color: #E08672; }
+  }
+  :root[data-theme="dark"] .badge.replied { background: #1B2A3D; color: #8FB6E8; }
+  :root[data-theme="dark"] .badge.adopted { background: #1B3320; color: #8FD19E; }
+  :root[data-theme="dark"] .badge.declined { background: #33201F; color: #E08672; }
+
+  select.status-select {
+    font-size: 12.5px;
+    padding: 4px 7px;
+    width: auto;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 46px 20px;
+    color: var(--ink-soft);
+  }
+  .empty-state .serif { font-size: 18px; color: var(--ink); display: block; margin-bottom: 6px; }
+
+  .funnel { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 20px; }
+  .funnel .fcell {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 12px;
+  }
+  .funnel .fcell .n { font-family: "Source Serif 4", serif; font-size: 26px; font-weight: 600; line-height: 1; }
+  .funnel .fcell .l { font-size: 12px; color: var(--ink-soft); margin-top: 5px; }
+
+  .two-col { display: grid; grid-template-columns: 260px 1fr; gap: 18px; align-items: start; }
+
+  .contact-picker {
+    max-height: 480px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .contact-picker button {
+    all: unset;
+    display: block;
+    width: 100%;
+    cursor: pointer;
+    padding: 11px 13px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13.5px;
+  }
+  .contact-picker button:last-child { border-bottom: none; }
+  .contact-picker button:hover { background: var(--surface-2); }
+  .contact-picker button.active { background: var(--primary-tint); }
+  .contact-picker strong { display: block; font-size: 13.5px; }
+  .contact-picker span { color: var(--ink-soft); font-size: 12px; }
+
+  .draft-box textarea.subject { font-weight: 600; }
+  .draft-box textarea.body { min-height: 260px; }
+
+  .status-line { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); min-height: 20px; margin-top: 8px;}
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(10, 16, 14, 0.4);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; z-index: 20;
+  }
+  .modal {
+    background: var(--surface); border-radius: 12px; padding: 24px;
+    width: 100%; max-width: 460px; border: 1px solid var(--border);
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h3 { margin: 0 0 16px 0; font-size: 18px; }
+
+  /* mobile */
+  .topbar { display: none; }
+  @media (max-width: 820px) {
+    .app { flex-direction: column; }
+    .sidebar {
+      position: sticky; top: 0; height: auto; width: 100%;
+      flex-direction: row; align-items: center; gap: 10px;
+      padding: 12px 14px; padding-top: calc(12px + env(safe-area-inset-top, 0px));
+      overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border);
+    }
+    .brand { border-bottom: none; padding: 0; margin: 0; }
+    .brand h1 { display: none; }
+    .brand .mark { display: none; }
+    nav.tabs { flex-direction: row; }
+    .side-stats { display: none; }
+    main { padding: 22px 16px 50px 16px; }
+    .field-row { grid-template-columns: 1fr; }
+    .two-col { grid-template-columns: 1fr; }
+    .funnel { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  ::selection { background: var(--primary-tint); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">Dr.Tracker</div>
+      <h1>Outreach</h1>
+    </div>
+    <nav class="tabs" id="tabNav">
+      <button data-tab="setup" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+        Setup
+      </button>
+      <button data-tab="contacts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        Contacts
+      </button>
+      <button data-tab="compose">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><path d="M22 6l-10 7L2 6"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>
+        Compose
+      </button>
+      <button data-tab="tracker">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+        Tracker
+      </button>
+      <button data-tab="autosend">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+        Auto-send
+      </button>
+    </nav>
+    <div class="side-stats" id="sideStats"></div>
+  </aside>
+
+  <main>
+    <!-- SETUP -->
+    <section class="tab-panel" data-panel="setup">
+      <div class="page-head">
+        <h2>Set up your outreach</h2>
+        <p>This fills in every generated email — how you sign off, and why a specialist should give Dr.Tracker a try. Save it once and every draft will use it.</p>
+      </div>
+      <div class="card">
+        <div class="field-row">
+          <div class="field">
+            <label for="senderName">Your name</label>
+            <input type="text" id="senderName" placeholder="e.g. Priya Shah">
+          </div>
+          <div class="field">
+            <label for="senderRole">Your role</label>
+            <input type="text" id="senderRole" placeholder="e.g. Founder, Dr.Tracker">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="senderEmail">Your email</label>
+            <input type="email" id="senderEmail" placeholder="you@drtracker.in">
+          </div>
+          <div class="field">
+            <label for="senderPhone">Your phone (for the signature)</label>
+            <input type="text" id="senderPhone" placeholder="e.g. +91 98765 43210">
+          </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="tone">Tone</label>
+            <select id="tone">
+              <option value="direct">Direct &amp; brief</option>
+              <option value="warm">Warm &amp; personal</option>
+              <option value="formal">Formal &amp; clinical</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="language">Email language</label>
+            <select id="language">
+              <option value="english">English</option>
+              <option value="hinglish">Hinglish (English, light Hindi touches)</option>
+              <option value="hindi">Hindi (हिन्दी)</option>
+            </select>
+            <p class="hint">Most Indian clinicians read and reply in professional English regardless of region — Hindi/Hinglish helps for smaller-town or Tier 2/3 practices where it reads as more personal.</p>
+          </div>
+        </div>
+        <div class="field">
+          <label for="pitch">What Dr.Tracker does (one or two sentences)</label>
+          <textarea id="pitch" rows="3" placeholder="e.g. Dr.Tracker lets specialists monitor patient-reported symptoms and vitals between visits, with alerts when something needs attention."></textarea>
+        </div>
+        <div class="field">
+          <label>Why a specialist would adopt it (2–4 short reasons)</label>
+          <div class="bullet-list" id="valuePropsList"></div>
+          <button class="btn ghost" type="button" id="addValueProp" style="padding-left:0;margin-top:6px;">+ Add reason</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn" id="saveSetup">Save setup</button>
+          <span class="status-line" id="setupSaved"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 4px 0;font-size:16px;">Company / network partnership pitch</h3>
+        <p class="hint" style="margin:0 0 14px 0;">Used when a contact's type is set to "Company" — diagnostic networks, insurers, health-tech platforms. Proposes that they adopt or integrate Dr.Tracker for their own doctors.</p>
+        <div class="field">
+          <label for="companyPitch">What partnering with Dr.Tracker offers a company (one or two sentences)</label>
+          <textarea id="companyPitch" rows="3" placeholder="e.g. Dr.Tracker lets your network's doctors stay connected to patients between visits, catching problems earlier and strengthening the trust patients place in your brand."></textarea>
+        </div>
+        <div class="field">
+          <label>Why a company would partner (2–4 short reasons)</label>
+          <div class="bullet-list" id="companyValuePropsList"></div>
+          <button class="btn ghost" type="button" id="addCompanyValueProp" style="padding-left:0;margin-top:6px;">+ Add reason</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn" id="saveCompanySetup">Save</button>
+          <span class="status-line" id="companySetupSaved"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 4px 0;font-size:16px;">Hospital pitch</h3>
+        <p class="hint" style="margin:0 0 14px 0;">Used when a contact's type is set to "Hospital" — a full institutional pilot across departments, pitched to hospital leadership, not a single clinician. Framed around what an administrator tracks: readmissions, discharge follow-up, accreditation, doctor workload.</p>
+        <div class="field">
+          <label for="hospitalPitch">What a Dr.Tracker pilot offers a hospital (one or two sentences)</label>
+          <textarea id="hospitalPitch" rows="3" placeholder="e.g. Dr.Tracker lets every doctor across your departments stay connected to discharged patients, catching problems before they become readmissions — with no extra task added to a nurse's or doctor's day."></textarea>
+        </div>
+        <div class="field">
+          <label>Why a hospital would pilot it (2–4 short reasons)</label>
+          <div class="bullet-list" id="hospitalValuePropsList"></div>
+          <button class="btn ghost" type="button" id="addHospitalValueProp" style="padding-left:0;margin-top:6px;">+ Add reason</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn" id="saveHospitalSetup">Save</button>
+          <span class="status-line" id="hospitalSetupSaved"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 4px 0;font-size:16px;">Product partner pitch</h3>
+        <p class="hint" style="margin:0 0 14px 0;">Used when a contact's type is set to "Product partner" — this one runs in the opposite direction. Instead of asking them to adopt Dr.Tracker, it offers Dr.Tracker's own doctor network as a channel for their product (a device, diagnostic, or complementary app doctors could recommend).</p>
+        <div class="field">
+          <label for="partnerPitch">What our doctor network offers a product company (one or two sentences, kept honest — no invented numbers)</label>
+          <textarea id="partnerPitch" rows="3" placeholder="e.g. A growing network of specialists — cardiologists, orthopaedic surgeons, gynaecologists — already asking patients to self-monitor between visits, and well placed to recommend a product that fits that exact workflow."></textarea>
+        </div>
+        <div class="field">
+          <label>Why a product company would want this (2–4 short reasons)</label>
+          <div class="bullet-list" id="partnerValuePropsList"></div>
+          <button class="btn ghost" type="button" id="addPartnerValueProp" style="padding-left:0;margin-top:6px;">+ Add reason</button>
+        </div>
+        <div class="btn-row" style="margin-top:6px;">
+          <button class="btn" id="savePartnerSetup">Save</button>
+          <span class="status-line" id="partnerSetupSaved"></span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 4px 0;font-size:16px;">Compliance footer</h3>
+        <p class="hint" style="margin:0 0 14px 0;">India doesn't have a CAN-SPAM-style law for email specifically, but two things apply here: the IT Act 2000 (no false headers/identity), and the Digital Personal Data Protection Act, 2023, which requires you to give people a clear way to withdraw consent to being contacted and a way to reach you about their data. This footer — sender identity, a contact address, and an opt-out — gets appended automatically to every email; it isn't part of the editable draft, so it can't be deleted by accident.</p>
+        <div class="field">
+          <label for="mailingAddress">Registered / business address</label>
+          <input type="text" id="mailingAddress" placeholder="e.g. Dr.Tracker Technologies Pvt Ltd, HSR Layout, Bengaluru, Karnataka 560102">
+        </div>
+        <div class="btn-row">
+          <button class="btn secondary" id="saveCompliance">Save</button>
+          <span class="status-line" id="complianceSaved"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTACTS -->
+    <section class="tab-panel" data-panel="contacts" style="display:none;">
+      <div class="page-head">
+        <h2>Specialists, clinic doctors &amp; company contacts</h2>
+        <p>Build your outreach list. Add people one at a time, or paste rows copied from a spreadsheet.</p>
+      </div>
+      <div class="card" style="margin-bottom:18px;">
+        <div class="btn-row">
+          <button class="btn" id="openAddContact">+ Add contact</button>
+          <button class="btn secondary" id="openPasteContacts">Paste from spreadsheet</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="contactsTable">
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Specialty / Role</th><th>Clinic / Company</th><th>City</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="contactsBody"></tbody>
+        </table>
+        <div class="empty-state" id="contactsEmpty">
+          <span class="serif">No contacts yet</span>
+          Add the first specialist or clinic doctor you want to reach.
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPOSE -->
+    <section class="tab-panel" data-panel="compose" style="display:none;">
+      <div class="page-head">
+        <h2>Compose</h2>
+        <p>Pick a contact, generate a personalized draft, then send it from your own email.</p>
+      </div>
+      <div class="two-col">
+        <div>
+          <label style="padding-left:2px;">Contacts</label>
+          <div class="contact-picker" id="contactPicker"></div>
+        </div>
+        <div id="composeMain"></div>
+      </div>
+    </section>
+
+    <!-- TRACKER -->
+    <section class="tab-panel" data-panel="tracker" style="display:none;">
+      <div class="page-head">
+        <h2>Tracker</h2>
+        <p>Where every contact stands, from first draft to adoption.</p>
+      </div>
+      <div class="funnel" id="funnel"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Name</th><th>Specialty / Clinic</th><th>Status</th><th>Last updated</th></tr>
+          </thead>
+          <tbody id="trackerBody"></tbody>
+        </table>
+        <div class="empty-state" id="trackerEmpty">
+          <span class="serif">Nothing to track yet</span>
+          Add contacts and send a few drafts — they'll show up here.
+        </div>
+      </div>
+    </section>
+
+    <!-- AUTOSEND -->
+    <section class="tab-panel" data-panel="autosend" style="display:none;">
+      <div class="page-head">
+        <h2>Auto-send</h2>
+        <p>Draft and send to a batch of contacts automatically, at a pace that won't get your account flagged as spam.</p>
+      </div>
+
+      <div class="card" id="gmailStatusCard">
+        <h3 style="margin:0 0 6px 0;font-size:16px;">Email account</h3>
+        <p class="hint" id="gmailStatusText" style="margin:0;">Checking connection…</p>
+        <div class="btn-row" style="margin-top:12px;" id="gmailStatusActions"></div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 12px 0;font-size:16px;">Batch settings</h3>
+        <div class="field-row">
+          <div class="field">
+            <label for="batchCap">Max emails per run</label>
+            <input type="text" id="batchCap" value="20">
+            <p class="hint">Keep this low (10–30) — sending too many too fast from one inbox is the #1 reason cold outreach gets marked as spam or gets an account suspended.</p>
+          </div>
+          <div class="field">
+            <label for="batchDelay">Seconds between sends</label>
+            <input type="text" id="batchDelay" value="45">
+            <p class="hint">Spreads sends out so they don't look automated to spam filters.</p>
+          </div>
+        </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+            <input type="checkbox" id="istWindow" checked style="width:auto;">
+            Only send 10:00 AM–6:00 PM IST, Monday–Saturday
+          </label>
+          <p class="hint">Clinics are usually mid-OPD before 10am and closing up after 6pm — emails that land during working hours get opened more. This also naturally avoids Sunday, when a lot of Indian practices are shut.</p>
+        </div>
+        <p class="hint" id="istClock" style="margin-top:4px;"></p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin:0 0 10px 0;font-size:16px;">Queue — <span id="queueCount">0</span> eligible</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Contacts with status "Not started" or "Drafted", a valid email, and not marked declined/unsubscribed.</p>
+        <div class="table-wrap" style="margin-bottom:14px;">
+          <table>
+            <thead><tr><th>Name</th><th>Specialty</th><th>Status</th></tr></thead>
+            <tbody id="queueBody"></tbody>
+          </table>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="runBatchBtn" disabled>Run batch</button>
+          <span class="status-line" id="batchStatus"></span>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modalRoot"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  var STORAGE_KEY = "drtracker_outreach_v1";
+  var STATUS_ORDER = ["new","drafted","sent","replied","adopted","declined"];
+  var STATUS_LABEL = {new:"Not started", drafted:"Drafted", sent:"Sent", replied:"Replied", adopted:"Adopted", declined:"Declined"};
+  var TYPE_META = {
+    doctor:   { label: "Doctor",           emoji: "🩺", specialtyLabel: "Specialty",          clinicLabel: "Clinic / Hospital",     specialtyPh: "Cardiology",                 clinicPh: "Apollo Hospitals",                namePh: "Dr. Aditi Sharma",  notesLabel: "Notes (used to personalize the email)",                              notesPh: "e.g. Runs a busy OPD, mentioned follow-up no-shows are a pain point at a recent conference", badgeClass: "sent" },
+    hospital: { label: "Hospital",         emoji: "🏥", specialtyLabel: "Contact's role",      clinicLabel: "Hospital name",         specialtyPh: "Medical Superintendent",     clinicPh: "Navjeevan Multispecialty Hospital", namePh: "Dr. Rakesh Malhotra", notesLabel: "Notes (readmission challenges, NABH status, expansion, etc.)",       notesPh: "e.g. Expanding to a second campus, under pressure to cut avoidable readmissions", badgeClass: "replied" },
+    company:  { label: "Company",          emoji: "🏢", specialtyLabel: "Contact's role",      clinicLabel: "Company name",          specialtyPh: "Head of Partnerships",       clinicPh: "Sanjeevani Health Diagnostics",   namePh: "Ritu Varma",         notesLabel: "Notes (recent funding, expansion, hiring signals, positioning)",     notesPh: "e.g. Raised Series B in 2025, expanding to Tier 2 cities, hiring a care-coordination lead", badgeClass: "drafted" },
+    partner:  { label: "Product partner",  emoji: "🤝", specialtyLabel: "Contact's role",      clinicLabel: "Company / product name", specialtyPh: "Head of Partnerships / BD", clinicPh: "VitalSense Diagnostics",          namePh: "Neha Kapoor",        notesLabel: "Notes (what their product is, why it fits our doctors' workflow)",   notesPh: "e.g. Makes a home BP/ECG device — a natural fit for patients our doctors already ask to self-monitor", badgeClass: "adopted" }
+  };
+
+  var state = load();
+  var selectedContactId = null;
+  var sampleFn = null;
+
+  function load(){
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        parsed.setup.companyPitch = parsed.setup.companyPitch || "";
+        parsed.setup.companyValueProps = parsed.setup.companyValueProps || ["", ""];
+        parsed.setup.hospitalPitch = parsed.setup.hospitalPitch || "";
+        parsed.setup.hospitalValueProps = parsed.setup.hospitalValueProps || ["", ""];
+        parsed.setup.partnerPitch = parsed.setup.partnerPitch || "";
+        parsed.setup.partnerValueProps = parsed.setup.partnerValueProps || ["", ""];
+        (parsed.contacts||[]).forEach(function(c){ if(!c.type) c.type = "doctor"; });
+        return parsed;
+      }
+    } catch(e) {}
+    return {
+      setup: { senderName:"", senderRole:"", senderEmail:"", senderPhone:"", tone:"direct", language:"english", pitch:"", valueProps:["", ""], companyPitch:"", companyValueProps:["", ""], hospitalPitch:"", hospitalValueProps:["", ""], partnerPitch:"", partnerValueProps:["", ""], mailingAddress:"" },
+      contacts: []
+    };
+  }
+  function save(){
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+  }
+  function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+  function esc(s){ return (s||"").replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  function fmtDate(ts){
+    if(!ts) return "—";
+    var d = new Date(ts);
+    return d.toLocaleDateString(undefined,{month:"short",day:"numeric"}) + " " + d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
+  }
+
+  /* ---------------- Tabs ---------------- */
+  document.getElementById("tabNav").addEventListener("click", function(e){
+    var btn = e.target.closest("button[data-tab]");
+    if(!btn) return;
+    document.querySelectorAll("#tabNav button").forEach(function(b){ b.classList.toggle("active", b===btn); });
+    document.querySelectorAll(".tab-panel").forEach(function(p){ p.style.display = (p.dataset.panel===btn.dataset.tab) ? "" : "none"; });
+    if (btn.dataset.tab === "contacts") renderContacts();
+    if (btn.dataset.tab === "compose") renderCompose();
+    if (btn.dataset.tab === "tracker") renderTracker();
+    if (btn.dataset.tab === "autosend") renderAutosend();
+  });
+
+  function complianceFooter(){
+    var addr = state.setup.mailingAddress;
+    var lines = [];
+    lines.push("---");
+    if (addr) lines.push(addr);
+    lines.push("Don't want emails like this from Dr.Tracker? Reply \"unsubscribe\" and we'll stop.");
+    return lines.join("\n");
+  }
+
+  /* ---------------- Setup ---------------- */
+  function renderValuePropsFor(listKey, wrapId){
+    var wrap = document.getElementById(wrapId);
+    wrap.innerHTML = "";
+    state.setup[listKey].forEach(function(v, i){
+      var row = document.createElement("div");
+      row.className = "bullet-row";
+      row.innerHTML = '<input type="text" data-idx="'+i+'" placeholder="e.g. Cuts no-show follow-ups in half" value="'+esc(v)+'">' +
+        (state.setup[listKey].length > 1 ? '<button class="btn danger" data-remove="'+i+'" type="button" style="padding:6px;">Remove</button>' : "");
+      wrap.appendChild(row);
+    });
+  }
+  function renderValueProps(){
+    renderValuePropsFor("valueProps", "valuePropsList");
+    renderValuePropsFor("companyValueProps", "companyValuePropsList");
+    renderValuePropsFor("hospitalValueProps", "hospitalValuePropsList");
+    renderValuePropsFor("partnerValueProps", "partnerValuePropsList");
+  }
+  function wireValuePropsList(listKey, wrapId, addBtnId){
+    document.getElementById(addBtnId).addEventListener("click", function(){
+      state.setup[listKey].push("");
+      renderValueProps();
+    });
+    document.getElementById(wrapId).addEventListener("click", function(e){
+      var rm = e.target.closest("[data-remove]");
+      if(rm){
+        state.setup[listKey].splice(parseInt(rm.dataset.remove,10),1);
+        renderValueProps();
+      }
+    });
+    document.getElementById(wrapId).addEventListener("input", function(e){
+      if(e.target.dataset.idx !== undefined){
+        state.setup[listKey][parseInt(e.target.dataset.idx,10)] = e.target.value;
+      }
+    });
+  }
+  wireValuePropsList("valueProps", "valuePropsList", "addValueProp");
+  wireValuePropsList("companyValueProps", "companyValuePropsList", "addCompanyValueProp");
+  wireValuePropsList("hospitalValueProps", "hospitalValuePropsList", "addHospitalValueProp");
+  wireValuePropsList("partnerValueProps", "partnerValuePropsList", "addPartnerValueProp");
+  function fillSetupForm(){
+    document.getElementById("senderName").value = state.setup.senderName;
+    document.getElementById("senderRole").value = state.setup.senderRole;
+    document.getElementById("senderEmail").value = state.setup.senderEmail;
+    document.getElementById("tone").value = state.setup.tone;
+    document.getElementById("language").value = state.setup.language || "english";
+    document.getElementById("senderPhone").value = state.setup.senderPhone || "";
+    document.getElementById("pitch").value = state.setup.pitch;
+    document.getElementById("companyPitch").value = state.setup.companyPitch || "";
+    document.getElementById("hospitalPitch").value = state.setup.hospitalPitch || "";
+    document.getElementById("partnerPitch").value = state.setup.partnerPitch || "";
+    document.getElementById("mailingAddress").value = state.setup.mailingAddress || "";
+    renderValueProps();
+  }
+  document.getElementById("saveSetup").addEventListener("click", function(){
+    state.setup.senderName = document.getElementById("senderName").value.trim();
+    state.setup.senderRole = document.getElementById("senderRole").value.trim();
+    state.setup.senderEmail = document.getElementById("senderEmail").value.trim();
+    state.setup.senderPhone = document.getElementById("senderPhone").value.trim();
+    state.setup.tone = document.getElementById("tone").value;
+    state.setup.language = document.getElementById("language").value;
+    state.setup.pitch = document.getElementById("pitch").value.trim();
+    save();
+    var line = document.getElementById("setupSaved");
+    line.textContent = "Saved.";
+    setTimeout(function(){ line.textContent = ""; }, 2200);
+    renderSideStats();
+  });
+  document.getElementById("saveCompanySetup").addEventListener("click", function(){
+    state.setup.companyPitch = document.getElementById("companyPitch").value.trim();
+    save();
+    var line = document.getElementById("companySetupSaved");
+    line.textContent = "Saved.";
+    setTimeout(function(){ line.textContent = ""; }, 2200);
+  });
+  document.getElementById("saveHospitalSetup").addEventListener("click", function(){
+    state.setup.hospitalPitch = document.getElementById("hospitalPitch").value.trim();
+    save();
+    var line = document.getElementById("hospitalSetupSaved");
+    line.textContent = "Saved.";
+    setTimeout(function(){ line.textContent = ""; }, 2200);
+  });
+  document.getElementById("savePartnerSetup").addEventListener("click", function(){
+    state.setup.partnerPitch = document.getElementById("partnerPitch").value.trim();
+    save();
+    var line = document.getElementById("partnerSetupSaved");
+    line.textContent = "Saved.";
+    setTimeout(function(){ line.textContent = ""; }, 2200);
+  });
+  document.getElementById("saveCompliance").addEventListener("click", function(){
+    state.setup.mailingAddress = document.getElementById("mailingAddress").value.trim();
+    save();
+    var line = document.getElementById("complianceSaved");
+    line.textContent = "Saved.";
+    setTimeout(function(){ line.textContent = ""; }, 2200);
+  });
+
+  function findDuplicate(email){
+    var e = (email||"").trim().toLowerCase();
+    if(!e) return null;
+    return state.contacts.find(function(c){ return c.email.trim().toLowerCase() === e; }) || null;
+  }
+
+  /* ---------------- Contacts ---------------- */
+  function renderContacts(){
+    var body = document.getElementById("contactsBody");
+    var empty = document.getElementById("contactsEmpty");
+    body.innerHTML = "";
+    if(state.contacts.length === 0){
+      empty.style.display = "";
+      document.getElementById("contactsTable").style.display = "none";
+      return;
+    }
+    empty.style.display = "none";
+    document.getElementById("contactsTable").style.display = "";
+    state.contacts.forEach(function(c){
+      var tr = document.createElement("tr");
+      var typeLabel = (TYPE_META[c.type] || TYPE_META.doctor).label;
+      tr.innerHTML =
+        '<td class="name-cell"><strong>'+esc(c.name)+'</strong><span>'+esc(c.email)+'</span></td>'+
+        '<td>'+typeLabel+'</td>'+
+        '<td>'+esc(c.specialty||"—")+'</td>'+
+        '<td>'+esc(c.clinic||"—")+'</td>'+
+        '<td>'+esc(c.city||"—")+'</td>'+
+        '<td><span class="badge '+c.status+'">'+STATUS_LABEL[c.status]+'</span></td>'+
+        '<td style="text-align:right;white-space:nowrap;">'+
+          '<button class="btn ghost" data-compose="'+c.id+'">Compose</button>'+
+          '<button class="btn danger" data-del="'+c.id+'">Delete</button>'+
+        '</td>';
+      body.appendChild(tr);
+    });
+  }
+  document.getElementById("contactsBody").addEventListener("click", function(e){
+    var del = e.target.closest("[data-del]");
+    var comp = e.target.closest("[data-compose]");
+    if(del){
+      if(confirm("Remove this contact and any draft you've written for them?")){
+        state.contacts = state.contacts.filter(function(c){ return c.id !== del.dataset.del; });
+        save(); renderContacts(); renderSideStats();
+      }
+    } else if(comp){
+      selectedContactId = comp.dataset.compose;
+      document.querySelector('#tabNav button[data-tab="compose"]').click();
+    }
+  });
+
+  function openModal(html){
+    var root = document.getElementById("modalRoot");
+    root.innerHTML = '<div class="modal-backdrop" id="modalBackdrop"><div class="modal">'+html+'</div></div>';
+    document.getElementById("modalBackdrop").addEventListener("mousedown", function(e){
+      if(e.target.id === "modalBackdrop") closeModal();
+    });
+  }
+  function closeModal(){ document.getElementById("modalRoot").innerHTML = ""; }
+
+  document.getElementById("openAddContact").addEventListener("click", function(){
+    openModal(
+      '<h3>Add contact</h3>'+
+      '<div class="field"><label>Type</label><select id="mType">'+
+        '<option value="doctor">Doctor / specialist</option>'+
+        '<option value="hospital">Hospital (institutional pilot)</option>'+
+        '<option value="company">Company (diagnostics, insurer, health-tech network)</option>'+
+        '<option value="partner">Product partner (offer them our doctor network)</option>'+
+      '</select></div>'+
+      '<div class="field"><label>Name</label><input type="text" id="mName" placeholder="Dr. Aditi Sharma"></div>'+
+      '<div class="field-row">'+
+        '<div class="field"><label id="mSpecialtyLabel">Specialty</label><input type="text" id="mSpecialty" placeholder="Cardiology"></div>'+
+        '<div class="field"><label id="mClinicLabel">Clinic / Hospital</label><input type="text" id="mClinic" placeholder="Apollo Hospitals"></div>'+
+      '</div>'+
+      '<div class="field-row">'+
+        '<div class="field"><label>City</label><input type="text" id="mCity" placeholder="Pune"></div>'+
+        '<div class="field"><label>Email</label><input type="email" id="mEmail" placeholder="aditi.sharma@clinic.in"></div>'+
+      '</div>'+
+      '<div class="field"><label id="mNotesLabel">Notes (used to personalize the email)</label><textarea id="mNotes" rows="2" placeholder="e.g. Runs a busy OPD, mentioned follow-up no-shows are a pain point at a recent conference"></textarea></div>'+
+      '<div class="btn-row" style="justify-content:flex-end;"><button class="btn secondary" id="mCancel" type="button">Cancel</button><button class="btn" id="mSave" type="button">Add contact</button></div>'
+    );
+    document.getElementById("mType").addEventListener("change", function(e){
+      var t = TYPE_META[e.target.value] || TYPE_META.doctor;
+      document.getElementById("mSpecialtyLabel").textContent = t.specialtyLabel;
+      document.getElementById("mClinicLabel").textContent = t.clinicLabel;
+      document.getElementById("mSpecialty").placeholder = t.specialtyPh;
+      document.getElementById("mClinic").placeholder = t.clinicPh;
+      document.getElementById("mName").placeholder = t.namePh;
+      document.getElementById("mNotesLabel").textContent = t.notesLabel;
+      document.getElementById("mNotes").placeholder = t.notesPh;
+    });
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("mSave").addEventListener("click", function(){
+      var name = document.getElementById("mName").value.trim();
+      var email = document.getElementById("mEmail").value.trim();
+      if(!name || !email){ alert("Name and email are required."); return; }
+      if(findDuplicate(email)){ alert("That email is already in your contacts — no duplicate added."); return; }
+      state.contacts.push({
+        id: uid(), type: document.getElementById("mType").value, name: name, specialty: document.getElementById("mSpecialty").value.trim(),
+        clinic: document.getElementById("mClinic").value.trim(), city: document.getElementById("mCity").value.trim(),
+        email: email, notes: document.getElementById("mNotes").value.trim(),
+        status: "new", draftSubject: "", draftBody: "", lastUpdated: null
+      });
+      save(); closeModal(); renderContacts(); renderSideStats();
+    });
+  });
+
+  document.getElementById("openPasteContacts").addEventListener("click", function(){
+    openModal(
+      '<h3>Paste from spreadsheet</h3>'+
+      '<p class="hint" style="margin-bottom:10px;">One row per person, columns separated by tabs or commas, in this order: <strong>name, specialty, clinic, city, email, notes</strong>. City and notes are optional. Pasted rows are added as Doctor contacts — add companies individually so the labels/pitch match.</p>'+
+      '<div class="field"><textarea id="mPaste" rows="8" placeholder="Dr. Aditi Sharma, Cardiology, Apollo Hospitals, Pune, aditi.sharma@clinic.in\nDr. Rahul Nair, Pediatrics, Rainbow Children\u2019s Hospital, Hyderabad, rahul.nair@clinic.in"></textarea></div>'+
+      '<div class="btn-row" style="justify-content:flex-end;"><button class="btn secondary" id="mCancel" type="button">Cancel</button><button class="btn" id="mSave" type="button">Add rows</button></div>'
+    );
+    document.getElementById("mCancel").addEventListener("click", closeModal);
+    document.getElementById("mSave").addEventListener("click", function(){
+      var raw = document.getElementById("mPaste").value;
+      var lines = raw.split(/\r?\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+      var added = 0, skippedDupes = 0;
+      lines.forEach(function(line){
+        var parts = line.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(function(p){ return p.trim(); });
+        if(parts.length < 4) return;
+        // Accept either [name,specialty,clinic,city,email,notes] or the older [name,specialty,clinic,email,notes]
+        var name = parts[0]||"(no name)", specialty = parts[1]||"", clinic = parts[2]||"", city = "", email = "", notes = "";
+        if(parts.length >= 5 && parts[4].indexOf("@") > -1){
+          city = parts[3]||""; email = parts[4]; notes = parts[5]||"";
+        } else {
+          email = parts[3]||""; notes = parts[4]||"";
+        }
+        if(email.indexOf("@") === -1) return;
+        if(findDuplicate(email)){ skippedDupes++; return; }
+        state.contacts.push({
+          id: uid(), type: "doctor", name: name, specialty: specialty, clinic: clinic, city: city,
+          email: email, notes: notes, status: "new", draftSubject:"", draftBody:"", lastUpdated: null
+        });
+        added++;
+      });
+      save(); closeModal(); renderContacts(); renderSideStats();
+      var msg = added + " added" + (skippedDupes ? ", " + skippedDupes + " skipped as duplicates" : "") + ".";
+      if(added===0 && skippedDupes===0) msg = "Couldn't find any valid rows — check that each line has at least name, specialty, clinic, email.";
+      alert(msg);
+    });
+  });
+
+  /* ---------------- Compose ---------------- */
+  function renderCompose(){
+    var picker = document.getElementById("contactPicker");
+    if(state.contacts.length === 0){
+      picker.innerHTML = '<div style="padding:14px;color:var(--ink-soft);font-size:13px;">Add a contact first.</div>';
+      document.getElementById("composeMain").innerHTML = "";
+      return;
+    }
+    if(!selectedContactId) selectedContactId = state.contacts[0].id;
+    picker.innerHTML = "";
+    state.contacts.forEach(function(c){
+      var b = document.createElement("button");
+      b.className = "" + (c.id === selectedContactId ? "active" : "");
+      b.dataset.id = c.id;
+      b.innerHTML = '<strong>'+(TYPE_META[c.type]||TYPE_META.doctor).emoji+' '+esc(c.name)+'</strong><span>'+esc(c.specialty||"—")+(c.city ? " · "+esc(c.city) : "")+' · '+STATUS_LABEL[c.status]+'</span>';
+      picker.appendChild(b);
+    });
+    picker.onclick = function(e){
+      var btn = e.target.closest("button[data-id]");
+      if(!btn) return;
+      selectedContactId = btn.dataset.id;
+      renderCompose();
+    };
+    renderComposeMain();
+  }
+
+  function renderComposeMain(){
+    var c = state.contacts.find(function(x){ return x.id === selectedContactId; });
+    var main = document.getElementById("composeMain");
+    if(!c){ main.innerHTML = ""; return; }
+    var missingSetup = !state.setup.pitch;
+    main.innerHTML =
+      '<div class="card draft-box">'+
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">'+
+          '<div><strong style="font-size:15px;">'+esc(c.name)+'</strong> <span class="badge '+(TYPE_META[c.type]||TYPE_META.doctor).badgeClass+'" style="margin-left:4px;">'+(TYPE_META[c.type]||TYPE_META.doctor).label+'</span><br><span style="color:var(--ink-soft);font-size:13px;">'+esc(c.specialty||"—")+' · '+esc(c.clinic||"—")+(c.city ? " · "+esc(c.city) : "")+' · '+esc(c.email)+'</span></div>'+
+          '<span class="badge '+c.status+'">'+STATUS_LABEL[c.status]+'</span>'+
+        '</div>'+
+        (missingSetup ? '<p class="hint" style="margin-top:12px;">Tip: fill in <em>Setup</em> first so drafts mention what Dr.Tracker actually does — otherwise the draft will stay generic.</p>' : '') +
+        '<div class="btn-row" style="margin-top:16px;">'+
+          '<button class="btn" id="genBtn">'+(c.draftBody ? "Regenerate draft" : "Generate draft")+'</button>'+
+          '<span class="status-line" id="genStatus"></span>'+
+        '</div>'+
+        '<div class="field" style="margin-top:16px;"><label>Subject</label><textarea class="subject" id="draftSubject" rows="1">'+esc(c.draftSubject)+'</textarea></div>'+
+        '<div class="field"><label>Body</label><textarea class="body" id="draftBody">'+esc(c.draftBody)+'</textarea></div>'+
+        '<div class="btn-row">'+
+          '<button class="btn secondary" id="copyBtn">Copy email</button>'+
+          '<button class="btn secondary" id="mailtoBtn">Open in email app</button>'+
+          '<select class="status-select" id="statusSelect" style="margin-left:auto;"></select>'+
+        '</div>'+
+      '</div>';
+
+    var statusSel = document.getElementById("statusSelect");
+    STATUS_ORDER.forEach(function(s){
+      var o = document.createElement("option");
+      o.value = s; o.textContent = "Mark: " + STATUS_LABEL[s];
+      if(s === c.status) o.selected = true;
+      statusSel.appendChild(o);
+    });
+    statusSel.addEventListener("change", function(){
+      c.status = statusSel.value; c.lastUpdated = Date.now();
+      save(); renderComposeMain(); renderContacts(); renderSideStats();
+    });
+
+    document.getElementById("draftSubject").addEventListener("input", function(e){ c.draftSubject = e.target.value; save(); });
+    document.getElementById("draftBody").addEventListener("input", function(e){ c.draftBody = e.target.value; save(); });
+
+    document.getElementById("copyBtn").addEventListener("click", function(){
+      var text = "Subject: " + c.draftSubject + "\n\n" + c.draftBody + "\n\n" + complianceFooter();
+      navigator.clipboard.writeText(text).then(function(){
+        flashStatus("genStatus", "Copied to clipboard.");
+      }).catch(function(){ flashStatus("genStatus", "Couldn't copy — select and copy manually."); });
+    });
+    document.getElementById("mailtoBtn").addEventListener("click", function(){
+      var fullBody = c.draftBody + "\n\n" + complianceFooter();
+      var url = "mailto:" + encodeURIComponent(c.email) + "?subject=" + encodeURIComponent(c.draftSubject) + "&body=" + encodeURIComponent(fullBody);
+      window.location.href = url;
+      if(c.status === "new"){ c.status = "drafted"; save(); }
+      c.sentSubject = c.draftSubject; c.sentBody = fullBody; c.openedInMailAt = Date.now();
+      save();
+    });
+
+    document.getElementById("genBtn").addEventListener("click", function(){ generateDraft(c); });
+  }
+
+  function flashStatus(id, msg){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.textContent = msg;
+    setTimeout(function(){ if(el) el.textContent = ""; }, 2500);
+  }
+
+  function buildPrompt(c){
+    var s = state.setup;
+    var toneDesc = { direct: "direct and brief — a busy reader should be able to read it in 20 seconds", warm: "warm and personable, still respectful of their time", formal: "formal and clinical in register" }[s.tone] || "direct and brief";
+    var langDesc = { english: "professional Indian English", hinglish: "mostly English with a few natural Hindi words or phrases mixed in, the way many Indian professionals write to each other — not forced, not gimmicky", hindi: "Hindi, written in Devanagari script, professional register" }[s.language] || "professional Indian English";
+    var sharedRules = "Write ONE email. Return ONLY minified JSON, no markdown fences, no commentary, matching exactly: {\"subject\": string, \"body\": string}. " +
+      "The body should be plain text (no HTML), under 170 words, and sign off with the sender's name, role and phone number on their own lines at the end (do not include the sender's email in the sign-off, it's already in the From address). " +
+      "Write in: " + langDesc + ". Tone: " + toneDesc + ". " +
+      "Aim for genuine emotional resonance: ground the email in a concrete, plausible, low-key scenario about what's at stake (a missed symptom, a patient who didn't call, a moment of doubt) rather than abstract feature talk — but do not fabricate specific statistics, named testimonials, or claims about outcomes that weren't given to you below, and do not manufacture urgency or scarcity (no fake deadlines, no \"only X spots left\"). Earn the emotion honestly, from the real stakes of the situation, not from pressure tactics.\n\n" +
+      "SENDER:\nName: " + (s.senderName||"(not given)") + "\nRole: " + (s.senderRole||"(not given)") + "\nPhone: " + (s.senderPhone||"(not given, omit from sign-off)") + "\n\n";
+
+    if (c.type === "hospital") {
+      var hprops = (s.hospitalValueProps||[]).filter(Boolean);
+      return "You write short institutional-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to hospital leadership (medical superintendent, CEO, or clinical governance) proposing a pilot of Dr.Tracker across the hospital's doctors and departments, not just one clinician. " +
+        sharedRules +
+        "Address the recipient respectfully by name (\"Dr. [Surname]\" if their role/notes indicate they're a clinician, otherwise \"Mr./Ms. [Surname]\"). Frame the stakes in terms a hospital administrator actually tracks — readmissions, discharge follow-up, bed turnover, accreditation/quality standards, doctor workload — not just one patient's story. End with a clear one-line ask for a short meeting with clinical/hospital leadership — do not assume their calendar or imply a deadline. " +
+        "Do not use a clinical/medical efficacy claim unless explicitly given below.\n\n" +
+        "WHAT DR.TRACKER OFFERS A HOSPITAL: " + (s.hospitalPitch || "(not given — keep the pitch generic and light)") + "\n" +
+        (hprops.length ? "Reasons a hospital would pilot it:\n- " + hprops.join("\n- ") + "\n" : "") + "\n" +
+        "RECIPIENT:\nName: " + c.name + "\nRole: " + (c.specialty||"(unknown)") + "\nHospital: " + (c.clinic||"(unknown)") + "\nCity: " + (c.city||"(unknown)") + "\n" +
+        (c.notes ? "Notes about them/their hospital (expansion, NABH/quality push, readmission pressure, etc.): " + c.notes + "\n" : "");
+    }
+
+    if (c.type === "partner") {
+      var pprops = (s.partnerValueProps||[]).filter(Boolean);
+      return "You write short partnership-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker. IMPORTANT — this pitch runs in the OPPOSITE direction from a normal partnership email: Dr.Tracker is NOT asking to adopt the recipient's product, and is NOT asking the recipient to adopt Dr.Tracker. Instead, Dr.Tracker is offering its own growing network of engaged specialists and clinic doctors as a channel — proposing that the recipient's company partner with Dr.Tracker so that doctors already on the platform can trial, recommend, or prescribe/use the recipient's product as part of the between-visit care they're already giving. " +
+        sharedRules +
+        "Address the recipient by first name in a professional Indian business-email register. Make explicit that the value on offer is access to Dr.Tracker's doctor network, not a request for the recipient's product or money. End with a clear one-line ask for a short call to explore fit — do not assume their calendar or imply a deadline. " +
+        "Do not fabricate the size of the doctor network (no invented numbers) — describe it only in the general, honest terms given below. Do not use a clinical/medical efficacy claim about the recipient's product unless explicitly given below.\n\n" +
+        "WHAT DR.TRACKER'S DOCTOR NETWORK OFFERS A PRODUCT COMPANY: " + (s.partnerPitch || "(not given — keep it generic: a network of specialists already engaged in between-visit patient monitoring)") + "\n" +
+        (pprops.length ? "Reasons a product company would want this:\n- " + pprops.join("\n- ") + "\n" : "") + "\n" +
+        "RECIPIENT:\nName: " + c.name + "\nRole: " + (c.specialty||"(unknown)") + "\nCompany/product: " + (c.clinic||"(unknown)") + "\nCity: " + (c.city||"(unknown)") + "\n" +
+        (c.notes ? "Notes about their product and why it fits our doctors' workflow: " + c.notes + "\n" : "");
+    }
+
+    if (c.type === "company") {
+      var cprops = (s.companyValueProps||[]).filter(Boolean);
+      return "You write short partnership-outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to a decision-maker (partnerships, clinical leadership, or ops) at a hospital chain, diagnostic network, insurer, or health-tech company in India, proposing that their organisation partner with or adopt Dr.Tracker for their doctors/patients. " +
+        sharedRules +
+        "Address the recipient by first name in a professional Indian business-email register (not \"Dr.\" unless their role/notes indicate they're a clinician). End with a clear one-line ask for a short call/meeting with the right stakeholders — do not assume you know their calendar or imply a deadline. " +
+        "Do not use a clinical/medical efficacy claim unless explicitly given below.\n\n" +
+        "WHAT DR.TRACKER OFFERS A PARTNER COMPANY: " + (s.companyPitch || "(not given — keep the pitch generic and light)") + "\n" +
+        (cprops.length ? "Reasons a company would partner:\n- " + cprops.join("\n- ") + "\n" : "") + "\n" +
+        "RECIPIENT:\nName: " + c.name + "\nRole: " + (c.specialty||"(unknown)") + "\nCompany: " + (c.clinic||"(unknown)") + "\nCity: " + (c.city||"(unknown)") + "\n" +
+        (c.notes ? "Notes about them/their company (funding, expansion, hiring, positioning): " + c.notes + "\n" : "");
+    }
+
+    var props = (s.valueProps||[]).filter(Boolean);
+    return "You write short outreach emails on behalf of an Indian health-tech startup called Dr.Tracker, addressed to specialists and clinic doctors across India, inviting them to try the product themselves. " +
+      sharedRules +
+      "End with a clear one-line ask (e.g. offering a 15-minute call or a free trial). Address the recipient as \"Dr. [Surname]\" in the salutation, which is the standard respectful form used in Indian professional correspondence. " +
+      "Do not use claims that sound like a clinical/medical efficacy claim unless explicitly given in the product description.\n\n" +
+      "PRODUCT (Dr.Tracker) — what it does: " + (s.pitch || "(not given — keep the pitch generic and light)") + "\n" +
+      (props.length ? "Reasons a specialist would adopt it:\n- " + props.join("\n- ") + "\n" : "") + "\n" +
+      "RECIPIENT:\nName: " + c.name + "\nSpecialty: " + (c.specialty||"(unknown)") + "\nClinic/Hospital: " + (c.clinic||"(unknown)") + "\nCity: " + (c.city||"(unknown)") + "\n" +
+      (c.notes ? "Notes about them: " + c.notes + "\n" : "");
+  }
+
+  function generateDraft(c){
+    var status = document.getElementById("genStatus");
+    var genBtn = document.getElementById("genBtn");
+    if(!sampleFn){
+      status.textContent = "AI drafting isn't available in this view — write the email manually below.";
+      return;
+    }
+    genBtn.disabled = true;
+    status.textContent = "Drafting…";
+    sampleFn.json(buildPrompt(c), { modelTier: "default" }).then(function(result){
+      var data = result && result.value ? result.value : result;
+      if(data && data.subject && data.body){
+        c.draftSubject = data.subject;
+        c.draftBody = data.body;
+        if(c.status === "new") c.status = "drafted";
+        c.lastUpdated = Date.now();
+        save();
+        renderComposeMain();
+        renderContacts();
+        renderSideStats();
+      } else {
+        status.textContent = "Got an unexpected response — try again.";
+      }
+    }).catch(function(err){
+      status.textContent = (err && err.code === "not_granted") ? "AI drafting isn't permitted here." :
+        (err && err.code === "rate_limited") ? "Rate limited — wait a moment and try again." :
+        "Couldn't generate a draft — try again.";
+    }).finally(function(){
+      genBtn.disabled = false;
+    });
+  }
+
+  /* ---------------- Tracker ---------------- */
+  function renderTracker(){
+    var counts = {}; STATUS_ORDER.forEach(function(s){ counts[s]=0; });
+    state.contacts.forEach(function(c){ counts[c.status] = (counts[c.status]||0)+1; });
+
+    var funnel = document.getElementById("funnel");
+    var stages = [["new","Not started"],["drafted","Drafted"],["sent","Sent"],["replied","Replied"],["adopted","Adopted"]];
+    funnel.innerHTML = stages.map(function(s){
+      return '<div class="fcell"><div class="n">'+(counts[s[0]]||0)+'</div><div class="l">'+s[1]+'</div></div>';
+    }).join("");
+
+    var body = document.getElementById("trackerBody");
+    var empty = document.getElementById("trackerEmpty");
+    body.innerHTML = "";
+    if(state.contacts.length === 0){
+      empty.style.display = "";
+      return;
+    }
+    empty.style.display = "none";
+    var sorted = state.contacts.slice().sort(function(a,b){ return (b.lastUpdated||0) - (a.lastUpdated||0); });
+    sorted.forEach(function(c){
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td class="name-cell"><strong>'+esc(c.name)+'</strong><span>'+esc(c.email)+'</span></td>'+
+        '<td>'+esc(c.specialty||"—")+(c.clinic ? " · "+esc(c.clinic) : "")+(c.city ? " · "+esc(c.city) : "")+'</td>'+
+        '<td><span class="badge '+c.status+'">'+STATUS_LABEL[c.status]+'</span></td>'+
+        '<td>'+fmtDate(c.lastUpdated)+'</td>';
+      body.appendChild(tr);
+    });
+  }
+
+  /* ---------------- Autosend ---------------- */
+  var mcpNs = null, mcpChecked = false;
+
+  function istNow(){
+    // IST is UTC+5:30 with no DST — compute directly rather than trusting the viewer's local zone.
+    var utc = Date.now() + (new Date().getTimezoneOffset() * 60000);
+    return new Date(utc + (5.5 * 3600000));
+  }
+  function withinIstWindow(){
+    var d = istNow();
+    var day = d.getDay(); // 0 Sun .. 6 Sat
+    var hour = d.getHours() + d.getMinutes()/60;
+    return day !== 0 && hour >= 10 && hour < 18;
+  }
+  function updateIstClock(){
+    var el = document.getElementById("istClock");
+    if(!el) return;
+    var d = istNow();
+    var timeStr = d.toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit"});
+    var inWindow = withinIstWindow();
+    el.textContent = "It's " + timeStr + " IST right now — " + (inWindow ? "inside the sending window." : "outside the sending window; a run will wait or stop until it opens.");
+  }
+  setInterval(updateIstClock, 30000);
+
+  function eligibleQueue(){
+    return state.contacts.filter(function(c){
+      return (c.status === "new" || c.status === "drafted") && c.email && c.email.indexOf("@") > -1;
+    });
+  }
+
+  function renderAutosend(){
+    updateIstClock();
+    var q = eligibleQueue();
+    document.getElementById("queueCount").textContent = q.length;
+    var body = document.getElementById("queueBody");
+    body.innerHTML = q.length ? q.map(function(c){
+      return '<tr><td>'+esc(c.name)+'</td><td>'+esc(c.specialty||"—")+'</td><td><span class="badge '+c.status+'">'+STATUS_LABEL[c.status]+'</span></td></tr>';
+    }).join("") : '<tr><td colspan="3" style="color:var(--ink-soft);">Nothing queued — contacts marked sent, replied, adopted or declined are excluded.</td></tr>';
+
+    var statusText = document.getElementById("gmailStatusText");
+    var actions = document.getElementById("gmailStatusActions");
+    var runBtn = document.getElementById("runBatchBtn");
+
+    if (!window.claude || typeof window.claude.use !== "function") {
+      statusText.textContent = "This view can't reach connected email accounts, so auto-send is unavailable here.";
+      runBtn.disabled = true;
+      return;
+    }
+    if (!mcpChecked) {
+      statusText.textContent = "Not wired up yet.";
+      actions.innerHTML = '<span class="hint">Auto-send isn\'t finished — sending real email through your Gmail account needs to be built and verified against your actual inbox first (rather than guessed), one time, in chat. Ask Claude to "finish wiring up Gmail auto-send" and it\'ll connect it here.</span>';
+      runBtn.disabled = true;
+      runBtn.title = "Not connected yet";
+    }
+  }
+
+  document.getElementById("runBatchBtn").addEventListener("click", function(){
+    // Intentionally not implemented until the Gmail send call has been
+    // observed and verified in chat — see status message above.
+  });
+
+  /* ---------------- Sidebar stats ---------------- */
+  function renderSideStats(){
+    var total = state.contacts.length;
+    var sent = state.contacts.filter(function(c){ return ["sent","replied","adopted"].indexOf(c.status) > -1; }).length;
+    var replied = state.contacts.filter(function(c){ return ["replied","adopted"].indexOf(c.status) > -1; }).length;
+    document.getElementById("sideStats").innerHTML =
+      '<div class="stat-row"><span>Contacts</span><strong>'+total+'</strong></div>'+
+      '<div class="stat-row"><span>Sent</span><strong>'+sent+'</strong></div>'+
+      '<div class="stat-row"><span>Replied</span><strong>'+replied+'</strong></div>';
+  }
+
+  /* ---------------- Init ---------------- */
+  fillSetupForm();
+  renderContacts();
+  renderSideStats();
+
+  if (window.claude && typeof window.claude.use === "function") {
+    window.claude.use("sample").then(function(ns){ sampleFn = ns; }).catch(function(){ sampleFn = null; });
+  }
+})();
+</script>
+</body>
+</html>
