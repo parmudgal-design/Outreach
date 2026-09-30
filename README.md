@@ -1,27 +1,93 @@
 # Dr.Tracker Outreach
 
-A single-page tool for emailing specialists, clinic doctors, hospitals and health companies across India: build a contact list, draft a personalised email for each contact with Claude, and track replies. See `dr-tracker-outreach-overview.pdf` for the full system overview.
+An email outreach system for bringing specialists, clinic doctors, hospitals, health companies and product partners across India on board with Dr.Tracker. You add your API keys, upload a spreadsheet, review the first drafts, and it runs on its own. It drafts each email for the recipient and their specialty, sends at a safe pace inside Indian working hours, follows up once, and notices replies, bounces and opt-outs.
 
-- `index.html` is the whole app (HTML, CSS and JS). It is published as a private Claude Artifact: https://claude.ai/artifact/Ja2qZazSZTvXUfJUkpebpv
-- Data lives in the viewer's browser (`localStorage`, key `drtracker_outreach_v1`).
-- Capabilities: `sample` (AI drafting) and `downloads` (backup export).
+`dr-tracker-outreach-overview.pdf` describes the original browser-only version, which is kept in [`artifact/`](artifact/). This version builds out the roadmap from section 5 of that PDF: live sending, reply and bounce detection, background automation, and a path to a real sending domain.
 
-## Features
+## Run it
 
-| Area | What it does |
+```bash
+./run.sh                 # creates .venv on first run, then serves http://127.0.0.1:8000
+PORT=8765 ./run.sh       # pick another port if 8000 is taken
+```
+
+Then open the page and follow the **Getting started** checklist on the Dashboard:
+
+1. **Setup:** sender name, role, phone and business address (required for the compliance footer), plus a pitch for each audience. The pitches are optional; sensible defaults are used.
+2. **Contacts → Upload spreadsheet:** CSV or `.xlsx`. Columns are matched automatically (you can fix the mapping), duplicates and opted-out emails are skipped, and each doctor's specialty is detected. Try `samples/sample-contacts.csv`, or download the template from the Contacts page.
+3. **Connections:** paste an Anthropic API key for AI-written drafts, and an email account (for Gmail, an App Password) to send for real. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run).
+4. **Review:** read and edit the drafts, then approve. **Campaign → Start.**
+
+To expose it beyond localhost, set a password: `HOST=0.0.0.0 OUTREACH_PASSWORD=… ./run.sh`. The script refuses to start without one, because the database holds your keys.
+
+## How it works
+
+```
+spreadsheet ─► contacts ─► specialty detection ─► draft (Claude or template)
+                                                      │
+                                         pre-send check (quality + Indian rules)
+                                                      │
+                                   Review: you approve (or auto-approve when clean)
+                                                      │
+          background worker ─► one email per step, paced, capped, 10:00–18:00 IST Mon–Sat
+                                                      │
+                                 SMTP (your mailbox or a transactional provider)
+                                                      │
+          IMAP poll ◄─ replies / bounces / "unsubscribe" ─► status updates, follow-ups stop,
+                                                            opt-out list updated
+          no reply after N days ─► one short follow-up in the same thread
+```
+
+| Piece | Where |
 |---|---|
-| Setup | Sender identity, tone and language, a separate pitch for each contact type, the compliance address, and backup export/import |
-| Contacts | Doctor, Hospital, Company and Product partner types. Add contacts one at a time or paste them from a spreadsheet. Duplicates and opted-out emails are blocked. |
-| Compose | One-click AI draft in the story-led style from the PDF: hook subject, opening scene, the gap, the answer, a low-effort ask, and a P.S. A **pre-send check** flags placeholders, figures not in Setup, pressure language, a missing name and over-long copy. |
-| Compliance | A DPDP-oriented footer (sender identity, address, opt-out) is added at send time. Marking a contact **Unsubscribed** puts their email on an opt-out list that survives deletion and blocks re-import. |
-| Tracker | Funnel view (not started → drafted → sent → replied → adopted, plus opted out) and a status table. |
-| Auto-send | IST 10am–6pm Mon–Sat window, batch cap and delay. **Draft queued contacts** drafts the whole queue for review. |
+| API and UI server (FastAPI) | `backend/app/main.py`, `backend/app/api.py` |
+| Background worker: drafting, sending, inbox, follow-ups | `backend/app/worker.py` |
+| Pipeline rules: statuses, suppression, sending, inbound matching | `backend/app/services/outreach.py` |
+| Specialty detection and per-specialty scenes and subjects | `backend/app/services/specialties.py` |
+| Drafting prompt, including the Indian compliance rules | `backend/app/services/prompts.py` |
+| Claude drafter and keyless template drafter | `backend/app/services/drafting.py` |
+| Pre-send checks | `backend/app/services/qa.py` |
+| SMTP sending and IMAP reply/bounce detection | `backend/app/services/mailer.py`, `inbox.py` |
+| Spreadsheet import | `backend/app/services/importer.py` |
+| Storage (SQLite, `data/outreach.db`, owner-only permissions) | `backend/app/db.py` |
+| UI (plain HTML/CSS/JS, no build step) | `frontend/` |
 
-## Not done yet
+## How the emails are written
 
-- **Live Gmail send.** "Run batch" stays disabled. Wiring it needs the Gmail connector authorised in claude.ai, plus one real, observed send so the exact tool call shape is known and not guessed.
-- Reply and bounce detection, a proper sending domain (SPF/DKIM/DMARC), background sending and multi-user use. See section 5 of the PDF.
+The emails follow the demo emails in the PDF, and are invitations to come on board rather than sales pitches:
 
-## Testing locally
+- **Subject:** a short story or a sharp question from the reader's own world, e.g. "Day ten, and her knee felt warm". Never the product name.
+- **Opening:** an ordinary, hypothetical between-visit moment from their specialty. The system detects the specialty from the specialty column, degrees, clinic name, notes or email handle, and covers 18 specialties with their own scenes.
+- **Middle:** names the gap in the doctor's own words. There is no product talk here.
+- **Last paragraph:** the only place Dr.Tracker appears. It says what Dr.Tracker is, then asks for one low-effort next step.
+- **P.S.:** an even lighter alternative, such as "reply 'video'".
 
-Open `index.html` in a browser. AI drafting and the Gmail connection only work inside claude.ai. Everything else (contacts, the pre-send check, the opt-out list, the tracker and backup) works from a local file.
+Hospitals, companies and product partners each get their own approach. A partner pitch is built around the partner's specific product (the **Product** column).
+
+## Indian rules built in
+
+The drafting prompt states these rules, and the pre-send check enforces them again. Errors block sending; warnings are shown for review.
+
+- **ASCI Code:** truthful, substantiated claims. No unsupported "best / No. 1 / India's first", and no fear-based scenes.
+- **Consumer Protection Act 2019, CCPA misleading-ads (2022) and dark-pattern (2023) guidelines:** no false urgency or scarcity, and honest subjects (a fake "Re:" on a first email is blocked).
+- **Drugs & Magic Remedies (Objectionable Advertisements) Act 1954:** no cure, prevention or guaranteed-outcome claims.
+- **NMC Professional Conduct Regulations 2023 and UCPMP 2024:** no gifts, fees or incentives to doctors, and no asking doctors to endorse or prescribe anything, including partners' products.
+- **DPDP Act 2023:** hypothetical scenes only; clear identity, address and a one-reply opt-out in every footer. Opt-outs are honoured automatically, survive deletion, and block re-import.
+- **IT Act 2000:** honest sender identity and headers. A `List-Unsubscribe` header is included.
+
+These are safeguards, not legal advice. Have someone qualified review your pitch text before large sends.
+
+## Tests
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest backend/tests -q
+```
+
+The tests run the whole pipeline (import → draft → approve → send over real SMTP to a local test server → reply, bounce and unsubscribe handling → threaded follow-up), plus the daily cap, the IST window, specialty detection and the guardrail checks.
+
+## Not verified yet
+
+- **Real Claude drafts:** the Claude API call is written against the current SDK, but it hasn't run with a real key. Use **Connections → Test** once you add one, then read the first few drafts closely.
+- **Real Gmail sending and IMAP:** tested only against a local SMTP server and synthetic inbound messages. Use **Send test** and **Test** on the Connections page with your account first.
+- **Deliverability at scale:** a personal inbox is fine for 10–30 emails a day. For more, send from your own domain through a transactional provider's SMTP with SPF, DKIM and DMARC set up.

@@ -1,0 +1,12 @@
+Full Name,Email,Speciality,Hospital / Clinic,Product,City,Category,Remarks
+"Dr. Aditi Sharma, MD DM",aditi.sharma@example.in,DM (Cardiology),Sharma Heart Clinic,,Pune,doctor,Runs a busy OPD; follow-up no-shows are a pain point
+Dr. Rahul Nair,rahul.nair@example.in,,Kochi Bone & Joint Centre,,Kochi,doctor,Mostly knee replacements
+Dr. Priya Menon,priya.menon@example.in,Consultant Endocrinologist,Sugar Care Diabetes Clinic,,Chennai,doctor,
+Dr. Kavita Rao,kavita.rao@example.in,Obstetrician & Gynaecologist,Janani Women's Hospital,,Hyderabad,doctor,High-risk pregnancies
+Dr. Arjun Mehta,arjun.mehta@example.in,Paediatrician,Little Steps Child Clinic,,Ahmedabad,doctor,
+Dr. Sneha Kulkarni,drskin.sneha@example.in,,Glow Skin Studio,,Nagpur,doctor,
+Dr. Rakesh Malhotra,ms@navjeevan.example.in,Medical Superintendent,Navjeevan Multispeciality Hospital,,Delhi,hospital,Expanding to a second campus
+Ritu Varma,ritu.varma@sanjeevani.example.in,Head of Partnerships,Sanjeevani Diagnostics,,Mumbai,company,Expanding to Tier 2 cities
+Neha Kapoor,neha@vitalsense.example.in,Head of BD,VitalSense,VitalSense home BP monitor,Bengaluru,partner,Bluetooth BP cuff with its own app
+Dr. Duplicate Test,ADITI.SHARMA@example.in,Cardiology,Other,,Pune,doctor,
+No Email Row,,Neurology,,,Delhi,doctor,
