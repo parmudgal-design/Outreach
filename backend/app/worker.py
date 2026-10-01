@@ -163,6 +163,8 @@ def send_stage(transport=None, now: float | None = None) -> dict:
     try:
         m = outreach.send(row["id"], transport=transport)
         return {"sent": m["id"]}
+    except outreach.DailyCapReached:
+        return {"skipped": "daily cap reached"}
     except outreach.OutreachError as e:
         return {"error": str(e)}
 

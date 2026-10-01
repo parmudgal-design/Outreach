@@ -412,6 +412,12 @@ def send_now(message_id: int):
                 _err(e)
     try:
         return outreach.send(message_id)
+    except outreach.DailyCapReached as e:
+        # The worker took the last slot between the check above and the send: leave the draft as it was.
+        if m["status"] == "draft":
+            with db.connect() as conn:
+                outreach.unapprove(conn, message_id)
+        _err(e, 429)
     except outreach.OutreachError as e:
         _err(e)
 

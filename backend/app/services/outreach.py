@@ -10,7 +10,7 @@ Lifecycle of a message:
 import time
 
 from .. import db, settings_store
-from . import compliance, drafting, mailer, qa, specialties
+from . import compliance, drafting, mailer, qa, schedule, specialties
 
 CONTACT_TYPES = ["doctor", "hospital", "company", "partner", "brand", "professional"]
 # Free-text contact fields set from imports and the contact form.
@@ -22,6 +22,10 @@ MAX_DRAFT_ATTEMPTS = 3
 
 
 class OutreachError(Exception):
+    pass
+
+
+class DailyCapReached(OutreachError):
     pass
 
 
@@ -248,9 +252,18 @@ def sent_since(conn, ts: float) -> int:
     return conn.execute("SELECT COUNT(*) FROM messages WHERE status = 'sent' AND sent_at >= ?", (ts,)).fetchone()[0]
 
 
+def used_today(conn) -> int:
+    """Emails that count toward today's cap: sent since IST midnight, plus any in flight right now."""
+    return sent_since(conn, schedule.start_of_ist_day()) + conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE status = 'sending'").fetchone()[0]
+
+
 def send(message_id: int, transport=None) -> dict:
-    """Send one approved message. Claims it first ('sending') so two callers can't double-send."""
+    """Send one approved message. Claims it first ('sending') so two callers can't double-send,
+    and claims it only while today's cap has room, so the worker and "Send now" can't overshoot it."""
     with db.connect() as conn:
+        # Take the write lock before reading: the cap check and the claim below happen as one step.
+        conn.execute("BEGIN IMMEDIATE")
         m = get_message(conn, message_id)
         if m["status"] != "approved":
             raise OutreachError("Only approved messages can be sent.")
@@ -262,12 +275,15 @@ def send(message_id: int, transport=None) -> dict:
         if qa.has_errors(issues):
             conn.execute("UPDATE messages SET status = 'draft', updated_at = ? WHERE id = ?", (time.time(), message_id))
             raise OutreachError("Blocked by pre-send check: " + "; ".join(i["message"] for i in issues if i["level"] == "error"))
+        s = settings_store.get_all(conn)
+        cap = int(s["campaign"]["daily_cap"])
+        if used_today(conn) >= cap:
+            raise DailyCapReached(f"Today's daily cap of {cap} emails is reached — it resets at midnight IST.")
         claimed = conn.execute(
             "UPDATE messages SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'approved'", (time.time(), message_id)
         ).rowcount
         if not claimed:
             raise OutreachError("Message is already being sent.")
-        s = settings_store.get_all(conn)
 
     # From here the message is claimed: every way out must leave it 'sent' or 'failed', never 'sending'.
     handed_over = False
