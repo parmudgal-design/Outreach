@@ -126,11 +126,26 @@ def init() -> None:
             existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             if column not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        recover_interrupted_sends(conn)
     # The database holds API keys and mail passwords: keep it owner-only.
     try:
         config.DB_PATH.chmod(0o600)
     except OSError:
         pass
+
+
+INTERRUPTED_NOTE = "Interrupted while sending (app restarted). Check your Sent folder before retrying."
+
+
+def recover_interrupted_sends(conn) -> int:
+    """A message still 'sending' at startup may or may not have reached the mail server.
+    Mark it failed (never re-queue it) so a person checks before anything is sent twice."""
+    stuck = conn.execute("SELECT id, contact_id FROM messages WHERE status = 'sending'").fetchall()
+    for r in stuck:
+        conn.execute("UPDATE messages SET status = 'failed', error = ?, updated_at = ? WHERE id = ?",
+                     (INTERRUPTED_NOTE, time.time(), r["id"]))
+        log_event("send", INTERRUPTED_NOTE, level="error", contact_id=r["contact_id"], conn=conn)
+    return len(stuck)
 
 
 def rows(cur) -> list[dict]:

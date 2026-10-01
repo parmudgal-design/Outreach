@@ -3,3 +3,8 @@ data/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Real partner workbooks never go in git; synthetic fixtures and samples do.
+*.xlsx
+!samples/*.xlsx
+!backend/tests/fixtures/*.xlsx

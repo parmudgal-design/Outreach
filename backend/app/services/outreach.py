@@ -141,14 +141,21 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
             d = drafter.followup(contact, s["sender"], s["pitches"], previous, contact["followups_sent"] + 1)
         else:
             d = drafter.initial(contact, s["sender"], s["pitches"])
-    except drafting.DraftError as e:
+    except Exception as raised:
+        e = raised if isinstance(raised, drafting.DraftError) else drafting.DraftError(f"Unexpected drafting error: {raised}")
+        # Only permanent failures count toward MAX_DRAFT_ATTEMPTS; rate limits, 5xx and
+        # network blips are retried on a later tick without using up the contact's attempts.
+        attempts = "draft_attempts" if e.retryable else "draft_attempts + 1"
         with db.connect() as conn:
             conn.execute(
-                "UPDATE contacts SET draft_attempts = draft_attempts + 1, last_error = ?, updated_at = ? WHERE id = ?",
+                f"UPDATE contacts SET draft_attempts = {attempts}, last_error = ?, updated_at = ? WHERE id = ?",
                 (str(e), time.time(), contact_id),
             )
-            db.log_event("draft", f"Draft failed for {contact['name']}: {e}", level="error", contact_id=contact_id, conn=conn)
-        raise
+            db.log_event("draft", f"Draft failed for {contact['name']}: {e}", level="warn" if e.retryable else "error",
+                         contact_id=contact_id, conn=conn)
+        if e is raised:
+            raise
+        raise e from raised
 
     now = time.time()
     status = "draft" if s["campaign"]["require_approval"] else "approved"
@@ -259,40 +266,56 @@ def send(message_id: int, transport=None) -> dict:
             raise OutreachError("Message is already being sent.")
         s = settings_store.get_all(conn)
 
-    from_email, from_name = mailer.from_address(s["email"], s["sender"])
-    transport = transport or mailer.get_transport(s["email"])
-    if transport.name == "smtp" and not from_email:
-        _mark_failed(message_id, contact, "No From address — set it under Connections.")
-        raise OutreachError("No From address configured.")
-    subject = m["subject"] if m["kind"] == "initial" or m["subject"].lower().startswith("re:") else f"Re: {m['subject']}"
-    msg = mailer.build_message(
-        from_email=from_email or "dry-run@localhost",
-        from_name=from_name,
-        to_email=contact["email"],
-        to_name=contact["name"],
-        subject=subject,
-        body=compliance.full_body(m["body"], s["sender"], from_email),
-        reply_to=s["email"].get("reply_to", ""),
-        in_reply_to=m["in_reply_to"],
-    )
+    # From here the message is claimed: every way out must leave it 'sent' or 'failed', never 'sending'.
+    handed_over = False
     try:
-        transport.send(msg)
-    except mailer.SendError as e:
-        _mark_failed(message_id, contact, str(e), bounce=e.permanent)
-        raise OutreachError(str(e)) from e
+        from_email, from_name = mailer.from_address(s["email"], s["sender"])
+        transport = transport or mailer.get_transport(s["email"])
+        if transport.name == "smtp" and not from_email:
+            _mark_failed(message_id, contact, "No From address — set it under Connections.")
+            raise OutreachError("No From address configured.")
+        subject = m["subject"] if m["kind"] == "initial" or m["subject"].lower().startswith("re:") else f"Re: {m['subject']}"
+        msg = mailer.build_message(
+            from_email=from_email or "dry-run@localhost",
+            from_name=from_name,
+            to_email=contact["email"],
+            to_name=contact["name"],
+            subject=subject,
+            body=compliance.full_body(m["body"], s["sender"], from_email),
+            reply_to=s["email"].get("reply_to", ""),
+            in_reply_to=m["in_reply_to"],
+        )
+        try:
+            transport.send(msg)
+        except mailer.SendError as e:
+            _mark_failed(message_id, contact, str(e), bounce=e.permanent)
+            raise OutreachError(str(e)) from e
+        handed_over = True
+        return _record_sent(message_id, m, contact, msg, subject, transport.name)
+    except OutreachError:
+        raise
+    except Exception as e:
+        if handed_over:
+            error = f"Handed to the mail server, but recording it failed ({e}). Check your Sent folder before retrying."
+        else:
+            error = f"Unexpected error while sending: {e}"
+        _mark_failed(message_id, contact, error)
+        raise OutreachError(error) from e
 
+
+def _record_sent(message_id: int, m: dict, contact: dict, msg, subject: str, transport_name: str) -> dict:
     now = time.time()
     with db.connect() as conn:
         conn.execute(
             "UPDATE messages SET status = 'sent', sent_at = ?, message_id = ?, transport = ?, subject = ?, updated_at = ? WHERE id = ?",
-            (now, msg["Message-ID"], transport.name, subject, now, message_id),
+            (now, msg["Message-ID"], transport_name, subject, now, message_id),
         )
         extra = ", followups_sent = followups_sent + 1" if m["kind"] == "followup" else ""
         conn.execute(
             f"UPDATE contacts SET status = CASE WHEN status IN ('new', 'drafted') THEN 'sent' ELSE status END, last_sent_at = ?, updated_at = ?{extra} WHERE id = ?",
             (now, now, contact["id"]),
         )
-        label = "Dry run — recorded" if transport.name == "dry_run" else "Sent"
+        label = "Dry run — recorded" if transport_name == "dry_run" else "Sent"
         db.log_event("send", f"{label} {'follow-up' if m['kind'] == 'followup' else 'email'} to {contact['name']} <{contact['email']}>",
                      contact_id=contact["id"], conn=conn)
         return get_message(conn, message_id)

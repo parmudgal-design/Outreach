@@ -128,10 +128,10 @@ def draft_stage(drafter=None) -> int:
         try:
             outreach.draft(contact_id, kind, drafter=drafter)
             done += 1
-        except drafting.DraftError as e:
-            if not e.retryable:
-                # Configuration problems (bad key, model) fail every call — stop until the next tick.
-                break
+        except drafting.DraftError:
+            # Rate limits and outages hit every call, and so do config problems (bad key, model):
+            # back off until the next tick rather than hammering the API.
+            break
         except outreach.OutreachError:
             continue
     return done

@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db, settings_store, worker
-from .services import drafting, importer, inbox, mailer, outreach, qa, specialties
+from .services import drafting, importer, inbox, mailer, outreach, qa, schedule, specialties
 
 router = APIRouter(prefix="/api")
 
@@ -371,8 +371,11 @@ def retry_message(message_id: int):
 
 @router.post("/messages/{message_id}/send")
 def send_now(message_id: int):
-    """Send immediately (outside the window), still counted against today's cap."""
+    """Send immediately (outside the window), but never past today's cap."""
     with db.connect() as conn:
+        cap = int(settings_store.get_section("campaign", conn)["daily_cap"])
+        if outreach.sent_since(conn, schedule.start_of_ist_day()) >= cap:
+            _err(Exception(f"Today's daily cap of {cap} emails is reached — it resets at midnight IST."), 429)
         m = outreach.get_message(conn, message_id)
         if m["status"] == "draft":
             try:

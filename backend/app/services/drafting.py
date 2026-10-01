@@ -71,19 +71,20 @@ class ClaudeDrafter:
         except anthropic.BadRequestError as e:
             raise DraftError(f"Anthropic API rejected the request: {e.message}") from e
         except anthropic.APIStatusError as e:
-            raise DraftError(f"Anthropic API error {e.status_code} — will retry later.", retryable=e.status_code >= 500) from e
+            retryable = e.status_code >= 500
+            raise DraftError(f"Anthropic API error {e.status_code}" + (" — will retry later." if retryable else "."), retryable=retryable) from e
         except anthropic.APIConnectionError as e:
             raise DraftError("Couldn't reach the Anthropic API — will retry later.", retryable=True) from e
 
         if response.stop_reason == "refusal":
             raise DraftError("Claude declined to write this email. Edit the contact notes or write it by hand.")
         if response.stop_reason == "max_tokens":
-            raise DraftError("The draft was cut off — try again.", retryable=True)
+            raise DraftError("The draft was cut off — try again.")
         text = next((b.text for b in response.content if b.type == "text"), "")
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
-            raise DraftError("Claude returned an unreadable draft — try again.", retryable=True) from e
+            raise DraftError("Claude returned an unreadable draft — try again.") from e
         return data
 
     def initial(self, contact: dict, sender: dict, pitches: dict) -> Draft:
