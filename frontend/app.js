@@ -63,7 +63,17 @@
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeOverlay(); });
 
   var STATUS_LABEL = { new: "Not started", drafted: "Drafted", sent: "Sent", replied: "Replied", adopted: "Adopted", declined: "Declined", unsubscribed: "Unsubscribed", bounced: "Bounced" };
-  var TYPE_LABEL = { doctor: "Doctor", hospital: "Hospital", company: "Company", partner: "Product partner" };
+  var TYPE_LABEL = { doctor: "Doctor", hospital: "Hospital", company: "Company", partner: "Product partner", brand: "Brand", professional: "Health professional" };
+  var MARKET_TYPES = ["brand", "professional"];
+  function isMarket(t) { return MARKET_TYPES.indexOf(t) >= 0; }
+  function categoryLabel(c) {
+    var cats = (meta.categories || {})[c.type] || [];
+    var hit = cats.filter(function (x) { return x.key === c.category; })[0];
+    return hit ? hit.label : "";
+  }
+  function categoryOptions(type, selected) {
+    return '<option value="">— not set —</option>' + ((meta.categories || {})[type] || []).map(function (x) { return '<option value="' + x.key + '"' + (x.key === selected ? " selected" : "") + ">" + esc(x.label) + "</option>"; }).join("");
+  }
   var MSG_LABEL = { draft: "Needs review", approved: "Approved — queued", sending: "Sending", sent: "Sent", failed: "Failed", discarded: "Discarded" };
   function badge(cls, text) { return '<span class="badge ' + esc(cls) + '">' + esc(text) + "</span>"; }
   function statusBadge(s) { return badge(s, STATUS_LABEL[s] || s); }
@@ -174,7 +184,7 @@
   pages.contacts = {
     render: function (el) {
       el.innerHTML =
-        '<div class="page-head"><div><h2>Contacts</h2><p>Doctors, hospitals, companies and product partners. Upload a spreadsheet and the system detects each doctor\'s specialty, then writes to them in their own world.</p></div>' +
+        '<div class="page-head"><div><h2>Contacts</h2><p>Doctors, hospitals, companies, product partners, and marketplace brands and health professionals. Upload a spreadsheet and the system detects each doctor\'s specialty, then writes to them in their own world.</p></div>' +
         '<div class="btn-row"><button class="btn" id="importBtn">Upload spreadsheet</button><button class="btn secondary" id="addBtn">+ Add contact</button></div></div>' +
         '<div class="filters"><input type="text" id="q" placeholder="Search name, email, clinic…" value="' + esc(contactFilter.q) + '">' +
         '<select id="typeF"><option value="">All types</option>' + Object.keys(TYPE_LABEL).map(function (t) { return '<option value="' + t + '"' + (contactFilter.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + "</select>" +
@@ -204,7 +214,9 @@
       }
       wrap.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Specialty / role</th><th>Clinic / company</th><th>City</th><th>Status</th><th>Next step</th></tr></thead><tbody>' +
         list.map(function (c) {
-          var spec = c.type === "doctor"
+          var spec = isMarket(c.type)
+            ? (categoryLabel(c) ? "<strong>" + esc(categoryLabel(c)) + "</strong>" : '<span class="muted">Category not set</span>') + (c.needs_check ? '<br><span class="muted">Check: ' + esc(c.needs_check) + "</span>" : "")
+            : c.type === "doctor"
             ? (c.specialty_label ? "<strong>" + esc(c.specialty_label) + "</strong>" + (c.specialty && c.specialty.toLowerCase() !== c.specialty_label.toLowerCase() ? '<br><span class="muted">' + esc(c.specialty) + "</span>" : "") : '<span class="muted">' + (esc(c.specialty) || "Not detected") + "</span>")
             : esc(c.specialty || "—");
           var next = c.pending_message ? badge(c.pending_message.status, MSG_LABEL[c.pending_message.status]) : (c.last_error ? badge("error", "Draft failed") : '<span class="muted">—</span>');
@@ -219,19 +231,27 @@
     return '<div class="field"><label>Type</label><select id="fType">' + Object.keys(TYPE_LABEL).map(function (t) { return '<option value="' + t + '"' + (c.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + "</select></div>" +
       '<div class="field-row"><div class="field"><label>Name</label><input type="text" id="fName" value="' + esc(c.name) + '" placeholder="Dr. Aditi Sharma"></div>' +
       '<div class="field"><label>Email</label><input type="email" id="fEmail" value="' + esc(c.email) + '"' + (c.id ? " disabled" : "") + ' placeholder="aditi@clinic.in"></div></div>' +
-      '<div class="field-row"><div class="field"><label id="fSpecL">' + (c.type === "doctor" ? "Specialty (as written)" : "Role") + '</label><input type="text" id="fSpec" value="' + esc(c.specialty) + '" placeholder="MD, DM (Cardiology)"></div>' +
+      '<div class="field-row"><div class="field"><label id="fSpecL">' + (c.type === "doctor" ? "Specialty (as written)" : isMarket(c.type) ? "Category (as written)" : "Role") + '</label><input type="text" id="fSpec" value="' + esc(c.specialty) + '" placeholder="MD, DM (Cardiology)"></div>' +
       '<div class="field"><label>Clinic / hospital / company</label><input type="text" id="fClinic" value="' + esc(c.clinic) + '"></div></div>' +
       '<div class="field-row"><div class="field"><label>City</label><input type="text" id="fCity" value="' + esc(c.city) + '"></div>' +
       '<div class="field" id="fProductWrap"' + (c.type === "partner" || c.type === "company" ? "" : " hidden") + '><label>Their product</label><input type="text" id="fProduct" value="' + esc(c.product) + '" placeholder="e.g. VitalSense home BP monitor"></div></div>' +
+      '<div id="fMarketWrap"' + (isMarket(c.type) ? "" : " hidden") + '>' +
+        '<div class="field"><label>Category</label><select id="fCategory">' + categoryOptions(c.type, c.category) + "</select></div>" +
+        '<div class="field"><label>What they sell or do <span class="muted">(one line; used to make the opening specific)</span></label><textarea id="fDesc" rows="2" placeholder="e.g. Millet snack bars with no added sugar">' + esc(c.description) + "</textarea></div>" +
+        '<div class="field"><label>Check before sending <span class="muted">(optional — shown as a warning on Review)</span></label><input type="text" id="fCheck" value="' + esc(c.needs_check) + '" placeholder="e.g. email is a generic care@ inbox"></div>' +
+      "</div>" +
       '<div class="field"><label>Notes <span class="muted">(used to personalise the email)</span></label><textarea id="fNotes" rows="3">' + esc(c.notes) + "</textarea></div>";
   }
   function readContactForm() {
-    return { type: $("#fType").value, name: $("#fName").value.trim(), email: $("#fEmail").value.trim(), specialty: $("#fSpec").value.trim(), clinic: $("#fClinic").value.trim(), city: $("#fCity").value.trim(), product: $("#fProduct").value.trim(), notes: $("#fNotes").value.trim() };
+    return { type: $("#fType").value, name: $("#fName").value.trim(), email: $("#fEmail").value.trim(), specialty: $("#fSpec").value.trim(), clinic: $("#fClinic").value.trim(), city: $("#fCity").value.trim(), product: $("#fProduct").value.trim(), notes: $("#fNotes").value.trim(), category: $("#fCategory").value, description: $("#fDesc").value.trim(), needs_check: $("#fCheck").value.trim() };
   }
   function wireTypeToggle() {
     $("#fType").onchange = function (e) {
-      $("#fProductWrap").hidden = !(e.target.value === "partner" || e.target.value === "company");
-      $("#fSpecL").textContent = e.target.value === "doctor" ? "Specialty (as written)" : "Role";
+      var t = e.target.value;
+      $("#fProductWrap").hidden = !(t === "partner" || t === "company");
+      $("#fMarketWrap").hidden = !isMarket(t);
+      if (isMarket(t)) $("#fCategory").innerHTML = categoryOptions(t, "");
+      $("#fSpecL").textContent = t === "doctor" ? "Specialty (as written)" : isMarket(t) ? "Category (as written)" : "Role";
     };
   }
 
@@ -317,7 +337,12 @@
   }
 
   /* Import wizard */
-  var FIELD_LABEL = { name: "Name", email: "Email *", type: "Type (doctor / hospital / company / partner)", specialty: "Specialty / role", clinic: "Clinic / hospital / company", product: "Product (partners)", city: "City", notes: "Notes" };
+  var FIELD_LABEL = {
+    name: "Name", email: "Email *", type: "Type (doctor / hospital / company / partner / brand / professional)", category: "Marketplace category",
+    specialty: "Specialty / role / category", clinic: "Clinic / hospital / company", product: "Product (partners) or description (brands, professionals)", city: "City", notes: "Notes",
+    description: "Description (what they sell or do)", notes_source: "Notes / Source (founder's sheet)", partner_id: "Partner ID", tier: "Tier",
+    phone: "Phone", website: "Website", source_url: "Source URL", needs_check: "Check before sending",
+  };
   function openImport() {
     openOverlay(
       '<button class="btn ghost close-x" id="x">Close</button><h3>Upload a spreadsheet</h3>' +
@@ -610,7 +635,7 @@
   pages.setup = {
     render: function (el) {
       return loadSettings().then(function (s) {
-        var sd = s.sender;
+        var sd = s.sender, mk = s.marketplace;
         el.innerHTML =
           '<div class="page-head"><div><h2>Setup</h2><p>Who the emails come from and what you want to say. Every draft uses this.</p></div></div>' +
           '<div class="card"><h3>Sender</h3><p class="sub">Shown in the sign-off and the compliance footer.</p>' +
@@ -622,6 +647,15 @@
             '<div class="field"><label>Language</label><select id="s_language">' + [["english", "English"], ["hinglish", "Hinglish (light Hindi touches)"], ["hindi", "Hindi (हिन्दी)"]].map(function (o) { return '<option value="' + o[0] + '"' + (sd.language === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div></div>" +
             '<div class="field"><label>Registered / business address</label><input type="text" id="s_address" value="' + esc(sd.address) + '" placeholder="Dr.Tracker Technologies Pvt Ltd, HSR Layout, Bengaluru 560102"><p class="hint">Required. Goes in the footer of every email with your identity and an opt-out line (IT Act 2000, DPDP Act 2023).</p></div>' +
             '<div class="btn-row"><button class="btn" id="saveSender">Save sender</button></div></div>' +
+          '<div class="card" id="marketplaceCard"><h3>Marketplace pitch — brands &amp; professionals</h3><p class="sub">The wording every brand and health-professional email is built from, with Claude or without. Change it here; no code changes needed.</p>' +
+            '<div class="field"><label>Value proposition — brands</label><textarea rows="3" id="m_value_prop_brands">' + esc(mk.value_prop_brands) + "</textarea></div>" +
+            '<div class="field"><label>Value proposition — professionals</label><textarea rows="3" id="m_value_prop_professionals">' + esc(mk.value_prop_professionals) + "</textarea></div>" +
+            '<div class="field"><label class="check"><input type="checkbox" id="m_mention_trial"' + (mk.mention_trial ? " checked" : "") + '> Mention the trial offer</label><p class="hint">Off: emails never mention prices, fees, commission or a trial (the pre-send check blocks them). On: the trial text below is the only offer allowed. Doctors and clinics never get commission or per-booking language either way.</p></div>' +
+            '<div class="field"><label>Trial text</label><input type="text" id="m_trial_text" value="' + esc(mk.trial_text) + '"></div>' +
+            '<div class="field-row"><div class="field"><label>Signature name</label><input type="text" id="m_signature_name" value="' + esc(mk.signature_name) + '" placeholder="' + esc(sd.name || "Same as sender") + '"></div>' +
+            '<div class="field"><label>Signature role</label><input type="text" id="m_signature_role" value="' + esc(mk.signature_role) + '" placeholder="' + esc(sd.role || "Same as sender") + '"></div></div>' +
+            '<p class="hint">Leave the signature blank to use the sender details above.</p>' +
+            '<div class="btn-row"><button class="btn" id="saveMarket">Save marketplace pitch</button></div></div>' +
           Object.keys(PITCH_INFO).map(function (t) {
             var p = s.pitches[t], info = PITCH_INFO[t];
             return '<div class="card"><h3>Pitch — ' + info[0] + '</h3><p class="sub">' + info[1] + "</p>" +
@@ -640,6 +674,11 @@
           var patch = {};
           ["name", "role", "email", "phone", "tone", "language", "address"].forEach(function (k) { patch[k] = $("#s_" + k).value.trim(); });
           api("PUT", "/settings/sender", patch).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
+        };
+        $("#saveMarket").onclick = function () {
+          var patch = { mention_trial: $("#m_mention_trial").checked };
+          ["value_prop_brands", "value_prop_professionals", "trial_text", "signature_name", "signature_role"].forEach(function (k) { patch[k] = $("#m_" + k).value.trim(); });
+          api("PUT", "/settings/marketplace", patch).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
         };
         $$("[data-pitch]").forEach(function (b) {
           b.onclick = function () {

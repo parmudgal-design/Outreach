@@ -62,6 +62,16 @@ The emails follow the demo emails in the PDF, and are invitations to come on boa
 - **Last paragraph:** the only place Dr.Tracker appears. It says what Dr.Tracker is, then asks for one low-effort next step.
 - **P.S.:** an even lighter alternative, such as "reply 'video'".
 
+### Marketplace partners: brands and professionals
+
+Contact types `brand` and `professional` (`b`/`p` in the type column) get a different pitch: list on Dr.Tracker's marketplace and be found by people actively managing their health. There's no patient-monitoring talk.
+
+- **Import:** the simple layout works (`Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`). `Category` holds the type, `Speciality` the marketplace category (e.g. "Supplements", "Nutritionist / dietitian"), `Product` a one-line description, and `Remarks` may end with `Partner ID B-SUP-T2-MUM-01`. A founder-style sheet also works: title rows above the header, and a single `Notes / Source` cell holding the site, description, source and a `CHECK:` note.
+- **Categories** (`services/marketplace.py`): brands FD wellness food, SUP supplements, PRO protein, DV devices; professionals NT nutritionist, GP general physician, SPC specialist/clinic, MH mental health, PT physio/trainer. Each category has its own opening, tone and ask.
+- **Greetings** (`services/greeting.py`): a named person is greeted by name ("Dear Dr. Hooda", "Dear Sridevi"). Otherwise the team is greeted ("Hello NOTO team", "Hello Kenia Eye Hospital team").
+- **Wording:** edit it under **Setup → Marketplace pitch**. That covers the value propositions, the trial switch and trial text, and the signature.
+- **Checks:** these block sending: placeholders, broken greetings, any price, fee or trial wording while the trial switch is off, and commission, referral or per-booking language to a GP or specialist/clinic. These are warnings: the old monitoring pitch, more than 200 words, and a `CHECK:` note from the sheet.
+
 Hospitals, companies and product partners each get their own approach. A partner pitch is built around the partner's specific product (the **Product** column).
 
 ## Indian rules built in

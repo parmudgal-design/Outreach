@@ -12,6 +12,10 @@ import time
 from .. import db, settings_store
 from . import compliance, drafting, mailer, qa, specialties
 
+CONTACT_TYPES = ["doctor", "hospital", "company", "partner", "brand", "professional"]
+# Free-text contact fields set from imports and the contact form.
+TEXT_FIELDS = ["specialty", "clinic", "product", "city", "notes", "category", "partner_id", "tier", "phone",
+               "website", "description", "source_url", "needs_check"]
 CONTACT_STATUSES = ["new", "drafted", "sent", "replied", "adopted", "declined", "unsubscribed", "bounced"]
 TERMINAL = {"declined", "unsubscribed", "bounced"}
 MAX_DRAFT_ATTEMPTS = 3
@@ -46,12 +50,11 @@ def add_contact(conn, data: dict, source: str = "manual") -> tuple[int | None, s
     now = time.time()
     data = {**data, "email": email, "type": data.get("type") or "doctor"}
     key, key_source = detect_specialty(data)
+    row = {"type": data["type"], "name": data["name"].strip(), "email": email, "specialty_key": key,
+           "specialty_source": key_source, "source": source, "created_at": now, "updated_at": now,
+           **{f: (data.get(f) or "").strip() for f in TEXT_FIELDS}}
     cur = conn.execute(
-        """INSERT INTO contacts (type, name, email, specialty, specialty_key, specialty_source, clinic, product, city, notes,
-                                 source, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (data["type"], data["name"].strip(), email, data.get("specialty", ""), key, key_source, data.get("clinic", ""),
-         data.get("product", ""), data.get("city", ""), data.get("notes", ""), source, now, now),
+        f"INSERT INTO contacts ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})", tuple(row.values())
     )
     return cur.lastrowid, None
 
@@ -138,9 +141,9 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
     drafter = drafter or drafting.get_drafter(s["ai"])
     try:
         if kind == "followup":
-            d = drafter.followup(contact, s["sender"], s["pitches"], previous, contact["followups_sent"] + 1)
+            d = drafter.followup(contact, s["sender"], s["pitches"], previous, contact["followups_sent"] + 1, s["marketplace"])
         else:
-            d = drafter.initial(contact, s["sender"], s["pitches"])
+            d = drafter.initial(contact, s["sender"], s["pitches"], s["marketplace"])
     except Exception as raised:
         e = raised if isinstance(raised, drafting.DraftError) else drafting.DraftError(f"Unexpected drafting error: {raised}")
         # Only permanent failures count toward MAX_DRAFT_ATTEMPTS; rate limits, 5xx and
@@ -190,7 +193,7 @@ def get_message(conn, message_id: int) -> dict:
 def check_message(conn, message: dict, contact: dict | None = None) -> list[dict]:
     contact = contact or get_contact(conn, message["contact_id"])
     s = settings_store.get_all(conn)
-    issues = qa.check(message["subject"], message["body"], contact, s["sender"], s["pitches"], message["kind"])
+    issues = qa.check(message["subject"], message["body"], contact, s["sender"], s["pitches"], message["kind"], s["marketplace"])
     if is_suppressed(conn, contact["email"]):
         issues.insert(0, {"level": "error", "message": "This person is on the opt-out list."})
     return issues

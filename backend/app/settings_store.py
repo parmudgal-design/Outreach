@@ -30,6 +30,21 @@ DEFAULTS: dict[str, dict] = {
         "company":  {"pitch": "", "props": []},
         "partner":  {"pitch": "", "props": []},
     },
+    # Brand and professional (marketplace) emails, editable on Setup → "Marketplace pitch".
+    "marketplace": {
+        "value_prop_brands": (
+            "Dr.Tracker is where people actively managing their health discover the products and professionals "
+            "that help them. Brands that list with us reach that audience at the moment they're making health decisions."
+        ),
+        "value_prop_professionals": (
+            "Dr.Tracker helps people who are working on their health find the right professionals. Practices that "
+            "list with us are found by people looking for exactly the care they offer."
+        ),
+        "mention_trial": False,     # off: no prices, fees, trials or offers at all
+        "trial_text": "We're offering early partners a free first month to try it.",
+        "signature_name": "",       # blank = the sender name (Setup → Sender)
+        "signature_role": "",       # blank = the sender role
+    },
     "ai": {
         "anthropic_api_key": "",
         "model": "claude-opus-5-5",

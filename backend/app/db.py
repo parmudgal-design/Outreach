@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 CREATE TABLE IF NOT EXISTS contacts (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  type          TEXT NOT NULL DEFAULT 'doctor',   -- doctor | hospital | company | partner
+  type          TEXT NOT NULL DEFAULT 'doctor',   -- doctor | hospital | company | partner | brand | professional
   name          TEXT NOT NULL,
   email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
   specialty     TEXT NOT NULL DEFAULT '',
@@ -116,6 +116,15 @@ MIGRATIONS = [
     ("contacts", "product", "TEXT NOT NULL DEFAULT ''"),
     ("contacts", "draft_attempts", "INTEGER NOT NULL DEFAULT 0"),
     ("contacts", "last_error", "TEXT"),
+    # Marketplace partners (brand / professional contacts).
+    ("contacts", "partner_id", "TEXT NOT NULL DEFAULT ''"),     # founder's sheet ID, e.g. B-SUP-T2-MUM-01
+    ("contacts", "category", "TEXT NOT NULL DEFAULT ''"),       # FD/SUP/PRO/DV or NT/GP/SPC/MH/PT (services/marketplace.py)
+    ("contacts", "tier", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "phone", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "website", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "description", "TEXT NOT NULL DEFAULT ''"),    # what they sell or do, from the sheet's notes
+    ("contacts", "source_url", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "needs_check", "TEXT NOT NULL DEFAULT ''"),    # why a person should check this row first
 ]
 
 

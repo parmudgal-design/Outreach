@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db, settings_store, worker
-from .services import drafting, importer, inbox, mailer, outreach, qa, schedule, specialties
+from .services import drafting, importer, inbox, mailer, marketplace, outreach, qa, schedule, specialties
 
 router = APIRouter(prefix="/api")
 
@@ -102,6 +102,11 @@ class ContactIn(BaseModel):
     product: str = ""
     city: str = ""
     notes: str = ""
+    category: str = ""
+    description: str = ""
+    needs_check: str = ""
+    website: str = ""
+    phone: str = ""
 
 
 class ContactPatch(BaseModel):
@@ -112,8 +117,18 @@ class ContactPatch(BaseModel):
     product: str | None = None
     city: str | None = None
     notes: str | None = None
+    category: str | None = None
+    description: str | None = None
+    needs_check: str | None = None
+    website: str | None = None
+    phone: str | None = None
     # A canonical key from /api/meta, "" to go back to automatic detection.
     specialty_key: str | None = None
+
+
+def _check_type(ctype: str) -> None:
+    if ctype not in outreach.CONTACT_TYPES:
+        _err(Exception(f"Unknown contact type {ctype!r}."))
 
 
 def _contact_view(conn, c: dict) -> dict:
@@ -127,7 +142,11 @@ def _contact_view(conn, c: dict) -> dict:
 
 @router.get("/meta")
 def meta():
-    return {"specialties": specialties.choices(), "statuses": outreach.CONTACT_STATUSES}
+    return {
+        "specialties": specialties.choices(),
+        "statuses": outreach.CONTACT_STATUSES,
+        "categories": {t: [{"key": k, "label": c.label} for k, c in marketplace.categories(t).items()] for t in marketplace.TYPES},
+    }
 
 
 @router.get("/contacts")
@@ -148,8 +167,11 @@ def list_contacts(status: str | None = None, q: str | None = None):
 def create_contact(body: ContactIn):
     if not importer.EMAIL_RE.match(body.email.strip()):
         _err(Exception("That email address doesn't look valid."))
+    data = body.model_dump()
+    _check_type(data["type"])
+    data["category"] = marketplace.normalise_category(data["category"], data["type"])
     with db.connect() as conn:
-        cid, reason = outreach.add_contact(conn, body.model_dump())
+        cid, reason = outreach.add_contact(conn, data)
         if reason == "duplicate":
             _err(Exception("That email is already in your contacts."), 409)
         if reason == "opted_out":
@@ -177,8 +199,12 @@ def patch_contact(contact_id: int, body: ContactPatch):
     manual_key = fields.pop("specialty_key", None)
     if manual_key and manual_key not in specialties.PLAYBOOKS:
         _err(Exception(f"Unknown specialty {manual_key!r}."))
+    if "type" in fields:
+        _check_type(fields["type"])
     with db.connect() as conn:
-        outreach.get_contact(conn, contact_id)
+        existing = outreach.get_contact(conn, contact_id)
+        if "category" in fields:
+            fields["category"] = marketplace.normalise_category(fields["category"], fields.get("type") or existing["type"])
         if fields:
             fields["updated_at"] = time.time()
             conn.execute(f"UPDATE contacts SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), contact_id))
@@ -308,6 +334,8 @@ def import_template():
     w.writerow(["Dr. Rakesh Malhotra", "ms@example-hospital.in", "hospital", "Medical Superintendent", "Navjeevan Hospital", "", "Delhi", "Expanding to a second campus"])
     w.writerow(["Ritu Varma", "ritu@example-diagnostics.in", "company", "Head of Partnerships", "Sanjeevani Diagnostics", "", "Mumbai", "Expanding to Tier 2 cities"])
     w.writerow(["Neha Kapoor", "neha@example-devices.in", "partner", "Head of BD", "VitalSense", "VitalSense home BP monitor", "Bengaluru", "Bluetooth BP cuff with its own app"])
+    w.writerow(["Crunchwell Foods", "hello@crunchwell.example", "brand", "Wellness food", "", "Millet snack bars with no added sugar", "Mumbai", "Partner ID B-FD-T2-MUM-01"])
+    w.writerow(["Dt. Meenal Joshi (Green Bowl Clinic)", "meenal@greenbowl.example", "professional", "Nutritionist / dietitian", "", "Diabetes-friendly meal planning and weekly check-ins", "Hyderabad", "Partner ID P-NT-T3-HYD-01"])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=contacts-template.csv"})
 
@@ -547,7 +575,8 @@ def export_contacts():
     with db.connect() as conn:
         rows = db.rows(conn.execute("SELECT * FROM contacts ORDER BY created_at"))
     buf = io.StringIO()
-    cols = ["name", "email", "type", "specialty", "specialty_key", "clinic", "product", "city", "notes", "status", "followups_sent", "last_sent_at", "replied_at", "source"]
+    cols = ["name", "email", "type", "category", "specialty", "specialty_key", "clinic", "product", "description", "city", "notes",
+            "partner_id", "tier", "phone", "website", "needs_check", "status", "followups_sent", "last_sent_at", "replied_at", "source"]
     w = csv.writer(buf)
     w.writerow(cols)
     for r in rows:

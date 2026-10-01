@@ -11,7 +11,7 @@ tightened to three rules:
 The stable text lives in the system prompt; everything that changes per
 contact goes in the user turn.
 """
-from . import specialties
+from . import greeting, marketplace, specialties
 
 TONE = {
     "direct": "direct and brief — a busy reader should get it in 20 seconds",
@@ -205,4 +205,133 @@ def followup_request(contact: dict, sender: dict, pitches: dict, previous: dict,
         + _recipient(contact)
         + "\n\nTHE EMAIL THEY HAVEN'T ANSWERED\n"
         + f"Subject: {previous.get('subject')}\n\n{previous.get('body')}"
+    )
+
+
+# --- Marketplace: brands and health professionals ------------------------------
+# A different job from the doctor emails above: Dr.Tracker is recruiting partners
+# to list on its marketplace, so the pitch is visibility, not patient monitoring.
+
+MARKETPLACE_RULES = """RULES THESE EMAILS MUST FOLLOW (non-negotiable — they override every style instruction; the pre-send check enforces them too):
+- Never invent facts about Dr.Tracker: no user numbers, growth figures, partner names, results or features beyond what the sender's value proposition says.
+- ASCI Code: no hype, no superlatives or firsts ("best", "No. 1", "India's first", "leading", "revolutionary") and no invented statistics. Their description is their own marketing: use it to be specific about WHAT they sell or do, but never repeat its claims as fact ("clinically proven", "India's favourite", "loved by thousands").
+- Drugs and Magic Remedies (Objectionable Advertisements) Act 1954, FSSAI claim rules: make no health or efficacy claim about their products or services — nothing cures, treats, prevents, boosts, burns, detoxes, heals or guarantees anything.
+- Money: follow the PRICING rule in the request exactly.
+- NMC (Registered Medical Practitioner Professional Conduct) Regulations 2023: when the recipient is a doctor or clinic, never mention commission, referral fees, revenue share, payment per booking, patient or lead, or any incentive. Doctors may not pay for, or be paid for, patient referrals. Never ask any professional to endorse, recommend or prescribe a product.
+- Consumer Protection Act 2019, CCPA misleading-ads (2022) and dark-pattern (2023) guidelines: no urgency, scarcity or deadlines ("limited spots", "only this month"), and an honest subject — never a fake "Re:" or "Fwd:".
+- DPDP Act 2023: scenes are clearly hypothetical; never describe a real user, and never offer partners access to users' health data.
+- IT Act 2000: the sender's identity is exactly as given in the sign-off.
+- Never leave a placeholder or an empty-field artefact: no "[Name]", "{company}", "your product", "N/A". If a fact you'd like isn't supplied, write the sentence without it.
+(An opt-out line and the sender's address are appended automatically — don't write your own.)"""
+
+MARKETPLACE_SYSTEM = f"""You write first-contact emails for Dr.Tracker, an Indian health app where people log their meals, symptoms, readings and habits. Dr.Tracker is recruiting partners for its marketplace: health BRANDS (wellness food, supplements, protein, health devices) list their products, and health PROFESSIONALS (nutritionists and dietitians, general physicians, specialists and clinics, mental-health professionals, physios and trainers) list their practice, so the health-conscious people using the app can find them.
+
+These emails invite a partner to list. They are not hard sells. The reader should finish feeling that the sender understands what they do and who they serve.
+
+SHAPE — follow it exactly:
+1. SUBJECT: 3–9 words, honest, about the reader's world or the people they serve. Never "Partnership opportunity", "Collaboration", "Quick question" or "Introducing…". No emoji, no ALL CAPS, no exclamation marks, no fake "Re:".
+2. GREETING: exactly the greeting line given in the request, on its own line.
+3. OPENING (2–3 sentences): specific to what they sell or the care they give, using their description and category. Show the moment a person using Dr.Tracker would go looking for exactly them. Keep it hypothetical and ordinary.
+4. WHY DR.TRACKER (one short paragraph): the angle in the brief, in the sender's own value proposition. Plain sentences, no claims you couldn't back up.
+5. THE ASK: one clear ask — a 15-minute call to show how listing works — phrased in the register the brief gives, as a question they can answer in one line. Don't assume their calendar. No second ask and no P.S.
+6. SIGN-OFF exactly as specified in the request.
+
+Short paragraphs separated by blank lines. Plain language, plain text, no HTML, no bullet lists, no links. Body 120–170 words including the sign-off. Never use the doctor patient-monitoring pitch (patients checking in between visits, wounds, incisions, "your patients"): this is about being discovered. Use only the facts supplied.
+
+{MARKETPLACE_RULES}"""
+
+MARKETPLACE_ANGLE = {
+    "brand": (
+        "AUDIENCE: a health brand, invited to list its products on Dr.Tracker's marketplace. CORE MESSAGE: people on "
+        "Dr.Tracker are actively working on their health, which is exactly the audience for this brand's products. "
+        "Listing puts their products in front of those people at the moment they're making health decisions: a focused "
+        "channel, and more cost-effective than broad paid advertising. Open with something specific to what THIS brand "
+        "sells (a protein brand: people building a fitness routine; a device brand: people tracking their health at home)."
+    ),
+    "professional": (
+        "AUDIENCE: a health professional, invited to list their practice on Dr.Tracker. CORE MESSAGE: people on "
+        "Dr.Tracker are looking for exactly this kind of care. Listing their practice lets those people find them and "
+        "contact or book them, with Dr.Tracker handling the visibility. Open with something specific to the care they give."
+    ),
+}
+
+
+def marketplace_signoff(sender: dict, market: dict) -> str:
+    return signoff_block({**sender, "name": market.get("signature_name") or sender.get("name"),
+                          "role": market.get("signature_role") or sender.get("role")})
+
+
+def pricing_rule(contact: dict, market: dict) -> str:
+    if market.get("mention_trial") and (market.get("trial_text") or "").strip():
+        rule = ("PRICING: the only offer you may mention is this, word for word, once, in the WHY DR.TRACKER paragraph: "
+                f"\"{market['trial_text'].strip()}\". No other price, fee, commission, discount or offer.")
+    else:
+        rule = "PRICING: don't mention any price, listing fee, commission, discount, free trial or other offer."
+    if marketplace.is_doctor(contact):
+        rule += (" This recipient is a doctor or clinic: never mention commission, referral fees, revenue share or "
+                 "payment per booking or patient in any form (NMC 2023).")
+    return rule
+
+
+def _marketplace_brief(contact: dict, sender: dict, market: dict) -> str:
+    ctype = contact["type"]
+    cat = marketplace.category(contact)
+    value_prop = market.get("value_prop_brands" if ctype == "brand" else "value_prop_professionals") or ""
+    return "\n".join([
+        f"Write in: {LANGUAGE.get(sender.get('language'), LANGUAGE['english'])}.",
+        f"Tone: {TONE.get(sender.get('tone'), TONE['warm'])}. For this category: {cat.tone}",
+        "",
+        MARKETPLACE_ANGLE[ctype],
+        f"CATEGORY: {cat.label}. The people on Dr.Tracker who'd look for them: people who {cat.seekers}.",
+        f"If they have no description, an opening in this spirit works (write your own): {cat.moment}",
+        f"THE ASK, in this register: \"{cat.ask.format(who='your ' + ('brand' if ctype == 'brand' else 'practice'))}\"",
+        "",
+        pricing_rule(contact, market),
+        "",
+        f"Sender's value proposition (their own words; use for the WHY DR.TRACKER paragraph): {value_prop or '(not supplied — describe Dr.Tracker in one plain, general sentence)'}",
+        "",
+        "Sign off with exactly these lines (never include the sender's email):",
+        marketplace_signoff(sender, market),
+    ])
+
+
+def _marketplace_recipient(contact: dict) -> str:
+    who = greeting.for_contact(contact)
+    lines = [
+        "RECIPIENT",
+        f"Name in the founder's sheet: {contact.get('name')}",
+        f"Greeting line to use, exactly: {greeting.salutation(who)}",
+    ]
+    if who.org:
+        lines.append(f"Organisation: {who.org}")
+    if who.is_person:
+        lines.append(f"Refer to them as: {who.short()}")
+    lines.append(f"City: {contact.get('city') or '(unknown — leave it out)'}")
+    if contact.get("description"):
+        lines.append(f"Their own description of what they do (be specific with it; don't repeat its claims): {contact['description']}")
+    else:
+        lines.append("Their description: not supplied — write the opening from their category instead, without guessing what they sell.")
+    if contact.get("notes"):
+        lines.append(f"Notes: {contact['notes']}")
+    return "\n".join(lines)
+
+
+def system_for(contact: dict) -> str:
+    return MARKETPLACE_SYSTEM if contact.get("type") in marketplace.TYPES else SYSTEM
+
+
+def marketplace_initial(contact: dict, sender: dict, market: dict) -> str:
+    return ("Write the first email to this recipient.\n\n" + _marketplace_brief(contact, sender, market)
+            + "\n\n" + _marketplace_recipient(contact))
+
+
+def marketplace_followup(contact: dict, sender: dict, market: dict, previous: dict, number: int) -> str:
+    return (
+        f"Write follow-up #{number} to an email this recipient hasn't answered. It goes as a reply in the same thread, "
+        "so return the original subject unchanged.\n"
+        "60–100 words, same greeting line, no new opening scene, no guilt (\"just bumping this\", \"did you see my "
+        "email\"). Add one small new reason the listing could suit them, restate the 15-minute call, and make it easy "
+        "to say no: a one-line \"not now\" is completely fine. Same sign-off, no P.S. All the rules still apply.\n\n"
+        + _marketplace_brief(contact, sender, market) + "\n\n" + _marketplace_recipient(contact)
+        + "\n\nTHE EMAIL THEY HAVEN'T ANSWERED\n" + f"Subject: {previous.get('subject')}\n\n{previous.get('body')}"
     )

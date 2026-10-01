@@ -11,7 +11,8 @@ from dataclasses import dataclass
 
 import anthropic
 
-from . import prompts, specialties
+from .. import settings_store
+from . import greeting, marketplace, prompts, specialties
 
 DRAFT_SCHEMA = {
     "type": "object",
@@ -47,11 +48,11 @@ class ClaudeDrafter:
         self.model = model
         self.effort = effort
 
-    def _complete(self, user_text: str) -> dict:
+    def _complete(self, user_text: str, system: str = prompts.SYSTEM) -> dict:
         kwargs = dict(
             model=self.model,
             max_tokens=16000,
-            system=prompts.SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": user_text}],
             output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": DRAFT_SCHEMA}},
         )
@@ -87,12 +88,20 @@ class ClaudeDrafter:
             raise DraftError("Claude returned an unreadable draft — try again.") from e
         return data
 
-    def initial(self, contact: dict, sender: dict, pitches: dict) -> Draft:
-        data = self._complete(prompts.initial_request(contact, sender, pitches))
+    def initial(self, contact: dict, sender: dict, pitches: dict, market: dict | None = None) -> Draft:
+        if contact.get("type") in marketplace.TYPES:
+            text = prompts.marketplace_initial(contact, sender, _market(market))
+        else:
+            text = prompts.initial_request(contact, sender, pitches)
+        data = self._complete(text, prompts.system_for(contact))
         return Draft(data["subject"].strip(), data["body"].strip(), self.name)
 
-    def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int) -> Draft:
-        data = self._complete(prompts.followup_request(contact, sender, pitches, previous, number))
+    def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int, market: dict | None = None) -> Draft:
+        if contact.get("type") in marketplace.TYPES:
+            text = prompts.marketplace_followup(contact, sender, _market(market), previous, number)
+        else:
+            text = prompts.followup_request(contact, sender, pitches, previous, number)
+        data = self._complete(text, prompts.system_for(contact))
         return Draft(previous["subject"], data["body"].strip(), self.name)
 
     def ping(self) -> str:
@@ -105,21 +114,23 @@ class ClaudeDrafter:
         return next((b.text for b in response.content if b.type == "text"), "").strip()
 
 
+def _market(market: dict | None) -> dict:
+    return market if market is not None else settings_store.DEFAULTS["marketplace"]
+
+
 # --- Keyless template drafter ------------------------------------------------
 # Same shape as the Claude prompt: a scene from the reader's world, the turn,
 # and Dr.Tracker only in the final paragraph as an invitation to come on board.
 
-def _first_name(name: str) -> str:
-    clean = re.sub(r"^(mr\.?|ms\.?|mrs\.?|prof\.?)\s+", "", (name or "").strip(), flags=re.I)
-    parts = clean.split()
-    return parts[0] if parts else "there"
-
-
-def _surname(name: str) -> str:
-    clean = re.sub(r"^(dr\.?|mr\.?|ms\.?|mrs\.?|prof\.?)\s+", "", (name or "").strip(), flags=re.I)
-    clean = re.split(r",", clean)[0]  # drop trailing degrees: "Rahul Nair, MS (Ortho)"
-    parts = clean.split()
-    return parts[-1] if parts else "there"
+def legacy_greeting(contact: dict, tone: str = "warm") -> str:
+    """Greeting for the original contact types: 'Namaste Dr. Sharma,' / 'Dear Neha,' / 'Hello Navjeevan team,'."""
+    who = greeting.for_contact(contact)
+    hello = "Dear" if tone == "formal" else "Namaste"
+    if (contact.get("type") or "doctor") == "doctor":
+        if who.is_person:
+            return f"{hello} Dr. {who.last},"
+        return f"Hello {who.org} team," if who.kind == "org" else f"{hello} Doctor,"
+    return greeting.salutation(who)
 
 
 DEFAULT_OFFER = {
@@ -140,6 +151,7 @@ PS = {
     "company": "P.S. Happy to start with a short async demo video if that's easier to route internally.",
     "partner": "P.S. Happy to share which specialties on Dr.Tracker fit {brand} most naturally, if that's useful before we talk.",
 }
+PARTNER_SUBJECTS_NO_BRAND = ["What happens to a home reading at 9 pm?", "The home reading nobody looked at", "Great data, landing nowhere"]
 ORG_SCENES = {
     "hospital": (
         ["What happens after they leave your wards?", "Discharged on Friday, quiet by Monday", "The follow-up call nobody had time for"],
@@ -159,18 +171,65 @@ ORG_SCENES = {
 }
 
 
+def marketplace_template(contact: dict, sender: dict, market: dict) -> Draft:
+    """Brand / professional email: what they do, the moment someone on Dr.Tracker looks for it,
+    the value proposition from Setup, what listing means for them, and one ask: a 15-minute call."""
+    ctype = contact["type"]
+    cat = marketplace.category(contact)
+    seed = contact.get("email") or contact.get("name") or ""
+    who = greeting.for_contact(contact)
+    desc = marketplace.clean_description(contact.get("description"))
+    intro = ""
+    if desc:
+        about = who.org or ("your practice" if ctype == "professional" else "what you make")
+        intro = f"I was reading about {about}: {desc}. "
+    if ctype == "brand":
+        opening = f"{intro}{cat.moment} They're exactly the people {who.org or 'a brand like yours'} wants to reach."
+        fit = (f"For {who.org or 'your brand'}, that means being in front of people who {cat.seekers}, "
+               "right when they're deciding what to try.")
+    else:
+        opening = f"{intro}{cat.moment} They're looking for someone like you."
+        listed = who.org if who.org and not who.is_person else "your practice"
+        fit = f"Listing {listed} means people who {cat.seekers} can find you, and contact or book you directly."
+    key = "value_prop_brands" if ctype == "brand" else "value_prop_professionals"
+    offer = (market.get(key) or settings_store.DEFAULTS["marketplace"][key]).strip() + " " + fit
+    if market.get("mention_trial") and (market.get("trial_text") or "").strip():
+        offer += " " + market["trial_text"].strip()
+    ask = cat.ask.format(who=who.org or "you")
+    body = "\n\n".join([greeting.salutation(who, sender.get("tone")), opening, offer, ask,
+                         prompts.marketplace_signoff(sender, market)])
+    return Draft(marketplace.choose(cat.subjects, seed, "s"), body, "template")
+
+
+def marketplace_followup_template(contact: dict, sender: dict, market: dict, previous: dict) -> Draft:
+    body = "\n\n".join([
+        greeting.salutation(greeting.for_contact(contact), sender.get("tone")),
+        "I know inboxes are busy, so I'll keep this short.",
+        "If 15 minutes to see how a listing on Dr.Tracker works would be useful, just reply with a time that suits you. "
+        "And if the timing isn't right, a one-line \"not now\" is completely fine; I won't follow up again.",
+        prompts.marketplace_signoff(sender, market),
+    ])
+    return Draft(previous["subject"], body, "template")
+
+
 class TemplateDrafter:
     name = "template"
 
-    def initial(self, contact: dict, sender: dict, pitches: dict) -> Draft:
+    def initial(self, contact: dict, sender: dict, pitches: dict, market: dict | None = None) -> Draft:
         ctype = contact.get("type") or "doctor"
+        if ctype in marketplace.TYPES:
+            return marketplace_template(contact, sender, _market(market))
         seed = (contact.get("email") or contact.get("name") or "")
-        is_dr = (contact.get("name") or "").lower().startswith("dr")
-        product = (contact.get("product") or contact.get("clinic") or "your product").strip()
-        # Full product name once, in the scene; the brand's short name everywhere after.
-        brand = (contact.get("clinic") or product.split()[0] if contact.get("product") else product).strip()
-        org = contact.get("clinic") or "your organisation"
+        who = greeting.for_contact(contact)
+        # Never fall back to "your product" / "your organisation": rephrase with what we do know.
+        org = contact.get("clinic") or (who.org if who.kind == "org" else "") or {"hospital": "your hospital", "company": "your company"}.get(ctype, "")
+        product = (contact.get("product") or "").strip()
+        brand = (contact.get("clinic") or (product.split()[0] if product else "") or (who.org if who.kind == "org" else "")).strip()
+        if not product:
+            product = f"{brand} monitor" if brand else "home monitor"
         pitch = ((pitches.get(ctype) or {}).get("pitch") or "").strip()
+        desc = marketplace.clean_description(contact.get("description"))
+        intro = f"I was reading about {org if org and not org.startswith('your ') else 'your work'}: {desc}.\n\n" if desc else ""
 
         if ctype == "doctor":
             pb = specialties.playbook(contact.get("specialty_key"))
@@ -180,24 +239,26 @@ class TemplateDrafter:
             opening = "Picture this: " + moment[0].lower() + moment[1:]
             turn = specialties.pick(pb.gaps, seed, "g")
             fmt = {"audience": pb.audience, "watch": pb.watch}
-            greeting = f"{'Dear' if sender.get('tone') == 'formal' else 'Namaste'} Dr. {_surname(contact.get('name'))},"
         else:
             subjects, opening, turn = ORG_SCENES[ctype]
+            if ctype == "partner" and not brand:
+                subjects, brand = PARTNER_SUBJECTS_NO_BRAND, "your device"
             fmt = {"org": org, "product": product, "brand": brand}
             subject = specialties.pick(subjects, seed, "s").format(**fmt)
             opening, turn = opening.format(**fmt), turn.format(**fmt)
-            greeting = f"Dear Dr. {_surname(contact.get('name'))}," if is_dr else f"Dear {_first_name(contact.get('name'))},"
+        opening = intro + opening
+        greeting_line = legacy_greeting(contact, sender.get("tone"))
 
         fmt.update({"org": org, "product": product, "brand": brand})
         offer = (pitch or DEFAULT_OFFER[ctype].format(**fmt)) + " " + ASK[ctype].format(**fmt)
-        body = "\n\n".join([greeting, opening, turn, offer, prompts.signoff_block(sender), PS[ctype].format(**fmt)])
+        body = "\n\n".join([greeting_line, opening, turn, offer, prompts.signoff_block(sender), PS[ctype].format(**fmt)])
         return Draft(subject, body, self.name)
 
-    def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int) -> Draft:
-        is_dr = (contact.get("type") or "doctor") == "doctor" or (contact.get("name") or "").lower().startswith("dr")
-        salutation = f"{'Dr.' if is_dr else 'Hi'} {_surname(contact.get('name'))},"
+    def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int, market: dict | None = None) -> Draft:
+        if contact.get("type") in marketplace.TYPES:
+            return marketplace_followup_template(contact, sender, _market(market), previous)
         body = (
-            f"{salutation}\n\n"
+            f"{legacy_greeting(contact, sender.get('tone'))}\n\n"
             "I know inboxes are relentless, so I'll keep this short.\n\n"
             "If a call isn't the right format, I'm happy to send a 2-minute video instead — "
             "and if the timing just isn't right, a one-line \"not now\" is completely fine; I won't follow up again.\n\n"

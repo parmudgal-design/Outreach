@@ -1,0 +1,16 @@
+Dr.Tracker partner list (synthetic test data — not real partners),,,,,,,,,
+"Columns follow the founder's sheet. Every name, email and site here is invented.",,,,,,,,,
+,,,,,,,,,
+ID,Name,City,Type,Category,Tier,Phone,Email,Status,Notes / Source
+B-FD-T2-MUM-01,Crunchwell Foods,MUM,B,FD,T2,+91 90000 00001,hello@crunchwell.test,,"Official site crunchwell.test; Millet snack bars and roasted makhana with no added sugar, Mumbai HQ; Source: https://crunchwell.test/about"
+B-SUP-TBD-MUM-01,Sunleaf Nutraceuticals Pvt Ltd,MUM,B,SUP,TBD,,care@sunleaf.test,,"Official site sunleaf.test; India's No. 1 vitamin D3 and B12 gummies, clinically proven; Source: https://sunleaf.test; CHECK: email is a generic care@ inbox"
+B-PRO-T1-BLR-01,LiftFuel,BLR,B,PRO,T1,,partners@liftfuel.test,,"Whey and plant protein powders and ready-to-drink shakes"
+B-DV-T2-HYD-01,VitalSense Devices,HYD,B,DV,T2,,bd@vitalsense.test,,
+P-NT-T2-DEL-01,Dr. Kavya Rao (FitPlate Nutrition),DEL,P,NT,T2,,kavya@fitplate.test,,"Official site fitplate.test; Diet plans for PCOS and thyroid with online consults, Delhi HQ"
+P-NT-T3-HYD-02,Dt. Meenal Joshi (Green Bowl Clinic),HYD,P,NT,T3,,meenal@greenbowl.test,,"Diabetes-friendly meal planning and weekly check-ins"
+P-GP-T2-BLR-01,Dr. Arvind Menon,BLR,P,GP,T2,,arvind.menon@clinic.test,,"Family physician in Indiranagar; morning and evening OPD"
+P-SPC-T1-MUM-01,Shreya Heart & Diabetes Clinic,MUM,P,SPC,T1,,appointments@shreyaclinic.test,,"Cardiology and diabetology clinic with a home sample-collection service; CHECK: confirm the clinic owner's name"
+P-MH-T2-DEL-01,Ritu Sethi (Calm Corner Counselling),DEL,P,MH,T2,,ritu@calmcorner.test,,"Counselling for anxiety, stress and relationships; sessions in English and Hindi"
+P-PT-T3-BLR-01,Total Health Physio & Sports,BLR,P,PT,T3,,info@totalhealthphysio.test,,
+P-NT-T2-MUM-03,24 Seven Wellness,MUM,P,NT,T2,,team@24seven.test,,
+B-FD-T3-DEL-02,No Email Foods,DEL,B,FD,T3,,,,"Granola and muesli"
