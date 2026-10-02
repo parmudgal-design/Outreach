@@ -188,10 +188,12 @@
         '<div class="btn-row"><button class="btn" id="importBtn">Upload spreadsheet</button><button class="btn secondary" id="addBtn">+ Add contact</button></div></div>' +
         '<div class="filters"><input type="text" id="q" placeholder="Search name, email, clinic…" value="' + esc(contactFilter.q) + '">' +
         '<select id="typeF"><option value="">All types</option>' + Object.keys(TYPE_LABEL).map(function (t) { return '<option value="' + t + '"' + (contactFilter.type === t ? " selected" : "") + ">" + TYPE_LABEL[t] + "</option>"; }).join("") + "</select>" +
-        '<span id="chips"></span><span class="spacer"></span><a class="btn ghost small" href="/api/import/template.csv">Template CSV</a><a class="btn ghost small" href="/api/export/contacts.csv">Export CSV</a></div>' +
+        '<span id="chips"></span><span class="spacer"></span><a class="btn ghost small" href="/api/import/template.csv">Template CSV</a><a class="btn ghost small" href="/api/export/contacts.csv">Export CSV</a><a class="btn ghost small" href="/api/export/partner-status.csv" title="Partner statuses keyed by the founder’s partner ID">Status CSV</a><button class="btn secondary small" id="wbBtn" title="Upload the founder’s current workbook and get it back with only the Status column updated">Update workbook</button><input type="file" id="wbFile" accept=".xlsx,.xlsm" hidden></div>' +
         '<div id="contactsTable"></div>';
       $("#importBtn").onclick = openImport;
       $("#addBtn").onclick = openAddContact;
+      $("#wbBtn").onclick = function () { $("#wbFile").value = ""; $("#wbFile").click(); };
+      $("#wbFile").onchange = function (e) { if (e.target.files[0]) updateWorkbook(e.target.files[0]); };
       var t;
       $("#q").oninput = function (e) { clearTimeout(t); t = setTimeout(function () { contactFilter.q = e.target.value; loadContacts(); }, 250); };
       $("#typeF").onchange = function (e) { contactFilter.type = e.target.value; loadContacts(); };
@@ -199,6 +201,25 @@
     },
     refresh: function () { return loadContacts(); },
   };
+
+  function updateWorkbook(f) {
+    var fd = new FormData();
+    fd.append("file", f);
+    toast("Updating Status in " + f.name + "…");
+    fetch("/api/export/partner-workbook", { method: "POST", body: fd }).then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || r.statusText); });
+      var summary = JSON.parse(r.headers.get("X-Status-Summary") || "{}");
+      return r.blob().then(function (blob) {
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = f.name.replace(/\.(xlsx|xlsm)$/i, "") + " (status updated)." + (/\.xlsm$/i.test(f.name) ? "xlsm" : "xlsx");
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+        toast(summary.updated + " Status cells updated, " + summary.unchanged + " already right" + (summary.unmatched ? ", " + summary.unmatched + " rows not in the app (left alone)" : "") + ".");
+      });
+    }).catch(fail);
+  }
 
   function loadContacts() {
     var qs = "?q=" + encodeURIComponent(contactFilter.q) + (contactFilter.status ? "&status=" + contactFilter.status : "");

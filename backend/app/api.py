@@ -4,6 +4,7 @@ import io
 import json
 import time
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -647,3 +648,46 @@ def export_contacts():
         ])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=drtracker-contacts.csv"})
+
+
+@router.post("/export/partner-workbook")
+async def export_partner_workbook(file: UploadFile = File(...)):
+    """Upload the founder's current workbook; get the same file back with only the Status column updated."""
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        _err(Exception("That file is over 10 MB."))
+    name = file.filename or "partners.xlsx"
+    if not name.lower().endswith((".xlsx", ".xlsm")):
+        _err(Exception("Upload the workbook as .xlsx."))
+    with db.connect() as conn:
+        try:
+            out, summary = partner_sheet.write_status(conn, data, name)
+        except partner_sheet.SheetError as e:
+            _err(e)
+        db.log_event("export", f"Updated Status in {name}: {summary['updated']} changed, {summary['unchanged']} already right, "
+                               f"{summary['unmatched']} rows not in the app", conn=conn)
+    stem, dot, ext = name.rpartition(".")
+    media = "application/vnd.ms-excel.sheet.macroEnabled.12" if ext.lower() == "xlsm" else \
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    counts = {k: summary[k] for k in ("updated", "unchanged", "unmatched")}
+    return StreamingResponse(iter([out]), media_type=media, headers={
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'{stem} (status updated).{ext}')}",
+        "X-Status-Summary": json.dumps(counts),
+    })
+
+
+@router.get("/export/partner-status.csv")
+def export_partner_status():
+    """Every marketplace partner's status, keyed by the founder's partner ID."""
+    with db.connect() as conn:
+        rows = db.rows(conn.execute(
+            "SELECT * FROM contacts WHERE partner_id != '' OR type IN ('brand', 'professional') ORDER BY partner_id, name"))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["partner_id", "name", "email", "type", "category", "tier", "city", "status", "app_status", "last_sent", "replied"])
+    fmt = lambda ts: time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else ""
+    for r in rows:
+        w.writerow([r["partner_id"], r["name"], r["email"], r["type"], r["category"], r["tier"], r["city"],
+                    partner_sheet.sheet_label(r["status"]), r["status"], fmt(r["last_sent_at"]), fmt(r["replied_at"])])
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=partner-status.csv"})

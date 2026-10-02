@@ -307,3 +307,62 @@ def _refresh_stale_draft(conn, contact_id: int, now: float) -> int:
     conn.execute("UPDATE contacts SET status = 'new', draft_attempts = 0, last_error = NULL WHERE id = ? AND status = 'drafted'",
                  (contact_id,))
     return len(stale)
+
+
+# --- Status back to the founder's workbook -----------------------------------
+
+def sheet_label(contact_status: str) -> str:
+    return STATUS_OUT.get(contact_status, "Not contacted")
+
+
+def write_status(conn, data: bytes, filename: str = "") -> tuple[bytes, dict]:
+    """The same workbook with only Status cells changed. Every other cell, tab, style and the Legend are
+    left alone; a Status cell is only rewritten when the app's status differs from what it already says
+    (so a blank 'Not contacted' stays blank)."""
+    import openpyxl
+
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(data), keep_vba=(filename or "").lower().endswith(".xlsm"))
+    except Exception as e:
+        raise SheetError(f"Couldn't read that workbook: {e}") from e
+    contacts = [dict(r) for r in conn.execute("SELECT id, email, partner_id, status FROM contacts")]
+    by_email = {c["email"].lower(): c for c in contacts}
+    by_key = {}
+    for c in contacts:
+        if c["partner_id"]:
+            by_key.setdefault(partner_key(c["partner_id"]), c)
+
+    counts = {"updated": 0, "unchanged": 0, "unmatched": 0}
+    changes = []
+    tabs = []
+    for ws in wb.worksheets:
+        top = [list(r) for r in ws.iter_rows(min_row=1, max_row=HEADER_SCAN_ROWS, values_only=True)]
+        h = _header_index(top)
+        if h is None:
+            continue
+        tabs.append(ws.title)
+        col = {name: i + 1 for i, name in enumerate(HEADERS)}
+        for row in range(h + 2, ws.max_row + 1):
+            pid = str(ws.cell(row, col["id"]).value or "").strip()
+            email = _first_email(str(ws.cell(row, col["email"]).value or ""))
+            if not pid and not email:
+                continue
+            c = by_email.get(email) or (by_key.get(partner_key(pid)) if pid else None)
+            if c is None:
+                counts["unmatched"] += 1
+                continue
+            cell = ws.cell(row, col["status"])
+            current = STATUS_IN.get(_norm(cell.value))
+            target = "new" if c["status"] == "drafted" else c["status"]
+            if current == target:
+                counts["unchanged"] += 1
+                continue
+            label = sheet_label(c["status"])
+            changes.append({"tab": ws.title, "row": row, "from": "" if cell.value is None else str(cell.value), "to": label})
+            cell.value = label
+            counts["updated"] += 1
+    if not tabs:
+        raise SheetError("No partner tabs found — this doesn't look like the founder's workbook.")
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue(), {**counts, "tabs": tabs, "changes": changes}
