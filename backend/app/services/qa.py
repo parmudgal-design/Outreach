@@ -117,6 +117,13 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
         add("error", "Sender name is missing — fill it in under Setup.")
     if not sender.get("address"):
         add("error", "Business address is missing — the compliance footer needs it (Setup).")
+    if is_market and market:
+        from ..settings_store import DEFAULTS  # local import: settings_store imports db, not services
+        defaults = DEFAULTS["marketplace"]
+        field = "value_prop_brands" if ctype == "brand" else "value_prop_professionals"
+        if (market.get(field) or "").strip() == defaults[field].strip():
+            add("warn", "The marketplace pitch is still the built-in placeholder wording — replace it with the "
+                        "founder's own under Setup → Marketplace pitch before sending for real.")
 
     who = greeting.for_contact(contact)
     expected = [who.last, who.first] if who.is_person else (who.org.split()[:1] if who.org else [])

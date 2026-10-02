@@ -62,7 +62,7 @@
   function closeOverlay() { $("#overlay").innerHTML = ""; }
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeOverlay(); });
 
-  var STATUS_LABEL = { new: "Not started", drafted: "Drafted", sent: "Sent", replied: "Replied", adopted: "Adopted", declined: "Declined", unsubscribed: "Unsubscribed", bounced: "Bounced" };
+  var STATUS_LABEL = { new: "Not started", drafted: "Drafted", sent: "Sent", replied: "Replied", adopted: "Interested", declined: "Not interested", unsubscribed: "Unsubscribed", bounced: "Bounced" };
   var TYPE_LABEL = { doctor: "Doctor", hospital: "Hospital", company: "Company", partner: "Product partner", brand: "Brand", professional: "Health professional" };
   var MARKET_TYPES = ["brand", "professional"];
   function isMarket(t) { return MARKET_TYPES.indexOf(t) >= 0; }
@@ -346,7 +346,7 @@
   function openImport() {
     openOverlay(
       '<button class="btn ghost close-x" id="x">Close</button><h3>Upload a spreadsheet</h3>' +
-      '<p class="sub" style="color:var(--ink-soft)">CSV or Excel (.xlsx). One row per person, with a header row. Columns are matched automatically — you can fix the mapping on the next step. Only upload contacts you have a legitimate reason to email; people on the opt-out list are skipped automatically.</p>' +
+      '<p class="sub" style="color:var(--ink-soft)">CSV or Excel (.xlsx). The founder’s partner workbook can be uploaded exactly as it is — every city tab is read at once. Other files need one row per person with a header row; columns are matched automatically and you can fix the mapping on the next step. Only upload contacts you have a legitimate reason to email; people on the opt-out list are skipped automatically.</p>' +
       '<div class="field"><input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm"></div>' +
       '<p class="hint"><a href="/api/import/template.csv">Download a template</a> to see the expected columns.</p>' +
       '<div id="importStep"></div>', "wide");
@@ -360,7 +360,45 @@
       api("POST", "/import/preview", fd, true).then(showMapping).catch(function (err) { $("#importStep").innerHTML = ""; fail(err); });
     };
   }
+  var SHEET_STATUS = { new: "Not contacted", sent: "Contacted", replied: "Replied", adopted: "Interested", declined: "Not interested", bounced: "Bounced", unsubscribed: "Unsubscribed" };
+  function sheetLists(r) {
+    var skipped = r.skipped || [], flags = r.flags || [];
+    return (flags.length ? '<h4 style="margin:16px 0 6px">Needs a look (' + flags.length + ")</h4><ul class=\"hint\" style=\"margin:0;padding-left:18px\">" +
+        flags.map(function (f) { return "<li>" + esc(f.tab + " row " + f.row + " · " + f.name + ": " + f.message) + "</li>"; }).join("") + "</ul>" : "") +
+      (skipped.length ? '<h4 style="margin:16px 0 6px">Skipped (' + skipped.length + ")</h4><ul class=\"hint\" style=\"margin:0;padding-left:18px\">" +
+        skipped.map(function (x) { return "<li>" + esc(x.tab + " row " + x.row + " · " + (x.name || "(no name)") + " — " + x.reason + (x.detail ? " (" + x.detail + ")" : "")) + "</li>"; }).join("") + "</ul>" : "");
+  }
+  function sheetCounts(c) {
+    var reasons = Object.keys(c.skipped_by_reason).map(function (k) { return c.skipped_by_reason[k] + " " + k; }).join(", ");
+    return '<div class="stats" style="margin:12px 0">' + stat(c.add, "to add") + stat(c.update, "to update") + stat(c.unchanged, "already up to date") + stat(c.skipped, "skipped") + "</div>" +
+      (reasons ? '<p class="hint">Skipped: ' + esc(reasons) + ".</p>" : "") +
+      (c.generic_inboxes ? '<p class="hint">' + c.generic_inboxes + " of the new contacts use a generic inbox (info@, care@…). They're imported; replies from these tend to be slower.</p>" : "");
+  }
+  function showSheetPlan(p) {
+    var c = p.counts;
+    var notContacted = p.adds.filter(function (a) { return a.status === "new"; }).length;
+    $("#importStep").innerHTML =
+      '<div class="notice info"><strong>' + esc(p.filename) + "</strong>: the partner workbook. " + p.row_count + " rows across " + p.tabs.map(esc).join(", ") +
+        (p.skipped_tabs.length ? " (" + p.skipped_tabs.map(esc).join(", ") + " skipped — no partner headers)" : "") + ".</div>" +
+      sheetCounts(c) +
+      (c.add ? '<p class="hint">' + notContacted + " new contacts are “Not contacted” and will be drafted. Rows already marked Contacted, Replied, Interested or Not interested are imported with that status and never drafted; Bounced and Unsubscribed rows go straight onto the opt-out list.</p>" : "") +
+      '<p class="hint">Existing contacts are matched by email, then by partner ID (ignoring the tier). Only filled-in cells overwrite; status and history are never changed. Machine-written drafts for updated contacts are replaced.</p>' +
+      sheetLists(p) +
+      '<div class="btn-row" style="margin-top:16px"><button class="btn" id="commit"' + (c.add + c.update ? "" : " disabled") + ">" +
+        (c.add + c.update ? "Import: add " + c.add + ", update " + c.update : "Nothing to import") + "</button></div>";
+    $("#commit").onclick = function () {
+      this.disabled = true;
+      api("POST", "/import/commit", { token: p.token }).then(function (r) {
+        $("#importStep").innerHTML = '<div class="notice ok"><strong>' + r.added + " added, " + r.updated + " updated.</strong>" +
+          (r.redrafted ? " " + r.redrafted + " out-of-date drafts were replaced and will be rewritten." : "") + "</div>" + sheetLists(r) +
+          '<div class="btn-row"><button class="btn" id="done">Done</button><a class="btn secondary" href="#/review" id="goRev">Go to Review</a></div>';
+        $("#done").onclick = function () { closeOverlay(); loadContacts(); refreshSide(); };
+        $("#goRev").onclick = closeOverlay;
+      }).catch(fail);
+    };
+  }
   function showMapping(p) {
+    if (p.format === "partner_workbook") return showSheetPlan(p);
     var opts = function (sel) {
       return '<option value="">— not in this file —</option>' + p.headers.map(function (h, i) { return '<option value="' + i + '"' + (sel === i ? " selected" : "") + ">" + esc(h || "Column " + (i + 1)) + "</option>"; }).join("");
     };
@@ -648,6 +686,7 @@
             '<div class="field"><label>Registered / business address</label><input type="text" id="s_address" value="' + esc(sd.address) + '" placeholder="Dr.Tracker Technologies Pvt Ltd, HSR Layout, Bengaluru 560102"><p class="hint">Required. Goes in the footer of every email with your identity and an opt-out line (IT Act 2000, DPDP Act 2023).</p></div>' +
             '<div class="btn-row"><button class="btn" id="saveSender">Save sender</button></div></div>' +
           '<div class="card" id="marketplaceCard"><h3>Marketplace pitch — brands &amp; professionals</h3><p class="sub">The wording every brand and health-professional email is built from, with Claude or without. Change it here; no code changes needed.</p>' +
+            '<div class="notice warn">The value propositions start as placeholder wording. Replace them with the founder’s own before sending for real — until then every marketplace draft shows a warning in Review.</div>' +
             '<div class="field"><label>Value proposition — brands</label><textarea rows="3" id="m_value_prop_brands">' + esc(mk.value_prop_brands) + "</textarea></div>" +
             '<div class="field"><label>Value proposition — professionals</label><textarea rows="3" id="m_value_prop_professionals">' + esc(mk.value_prop_professionals) + "</textarea></div>" +
             '<div class="field"><label class="check"><input type="checkbox" id="m_mention_trial"' + (mk.mention_trial ? " checked" : "") + '> Mention the trial offer</label><p class="hint">Off: emails never mention prices, fees, commission or a trial (the pre-send check blocks them). On: the trial text below is the only offer allowed. Doctors and clinics never get commission or per-booking language either way.</p></div>' +
@@ -656,6 +695,9 @@
             '<div class="field"><label>Signature role</label><input type="text" id="m_signature_role" value="' + esc(mk.signature_role) + '" placeholder="' + esc(sd.role || "Same as sender") + '"></div></div>' +
             '<p class="hint">Leave the signature blank to use the sender details above.</p>' +
             '<div class="btn-row"><button class="btn" id="saveMarket">Save marketplace pitch</button></div></div>' +
+          '<div class="card"><h3>Never import</h3><p class="sub">Rows whose Name or Notes contain any of these words are skipped on import and listed in the summary. Crisis lines and government helplines must never get marketing email.</p>' +
+            '<div class="field"><label>One per line (whole words, any case)</label><textarea rows="5" id="i_blocked">' + esc((s["import"].blocked_patterns || []).join("\n")) + "</textarea></div>" +
+            '<div class="btn-row"><button class="btn secondary" id="saveImport">Save</button></div></div>' +
           Object.keys(PITCH_INFO).map(function (t) {
             var p = s.pitches[t], info = PITCH_INFO[t];
             return '<div class="card"><h3>Pitch — ' + info[0] + '</h3><p class="sub">' + info[1] + "</p>" +
@@ -679,6 +721,10 @@
           var patch = { mention_trial: $("#m_mention_trial").checked };
           ["value_prop_brands", "value_prop_professionals", "trial_text", "signature_name", "signature_role"].forEach(function (k) { patch[k] = $("#m_" + k).value.trim(); });
           api("PUT", "/settings/marketplace", patch).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
+        };
+        $("#saveImport").onclick = function () {
+          var list = $("#i_blocked").value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
+          api("PUT", "/settings/import", { blocked_patterns: list }).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
         };
         $$("[data-pitch]").forEach(function (b) {
           b.onclick = function () {

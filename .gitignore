@@ -8,3 +8,6 @@ __pycache__/
 *.xlsx
 !samples/*.xlsx
 !backend/tests/fixtures/*.xlsx
+
+# Deployment secrets (OUTREACH_SECRET_KEY etc.) never go in git.
+.env

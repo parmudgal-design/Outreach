@@ -31,6 +31,8 @@ DEFAULTS: dict[str, dict] = {
         "partner":  {"pitch": "", "props": []},
     },
     # Brand and professional (marketplace) emails, editable on Setup → "Marketplace pitch".
+    # TODO(founder): the marketplace wording below is a placeholder until the founder supplies the real
+    # value propositions. While it's unchanged the pre-send check shows a warning (qa.py).
     "marketplace": {
         "value_prop_brands": (
             "Dr.Tracker is where people actively managing their health discover the products and professionals "
@@ -44,6 +46,15 @@ DEFAULTS: dict[str, dict] = {
         "trial_text": "We're offering early partners a free first month to try it.",
         "signature_name": "",       # blank = the sender name (Setup → Sender)
         "signature_role": "",       # blank = the sender role
+    },
+    "import": {
+        # Rows whose Name or Notes match any of these are never imported: crisis and government
+        # helplines must not receive marketing email. Matched as whole words, case-insensitive.
+        "blocked_patterns": [
+            "helpline", "help line", "crisis", "suicide", "suicide prevention", "tele-manas", "telemanas", "tele manas",
+            "icall", "sumaitri", "vandrevala", "aasra", "sneha india", "lifeline", "hotline", "kiran helpline",
+            "toll-free helpline", "national helpline", "government helpline",
+        ],
     },
     "ai": {
         "anthropic_api_key": "",

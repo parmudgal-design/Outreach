@@ -1,6 +1,7 @@
 """JSON API used by the frontend."""
 import csv
 import io
+import json
 import time
 import uuid
 
@@ -9,12 +10,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import db, settings_store, worker
-from .services import drafting, importer, inbox, mailer, marketplace, outreach, qa, schedule, specialties
+from .services import drafting, importer, inbox, mailer, marketplace, outreach, partner_sheet, qa, schedule, specialties
 
 router = APIRouter(prefix="/api")
 
-# Parsed uploads waiting for the user to confirm the column mapping.
-_pending_imports: dict[str, dict] = {}
 
 
 def _err(e: Exception, code: int = 400):
@@ -272,22 +271,67 @@ def manual_draft(contact_id: int, body: ManualDraft):
 
 # --- Import ------------------------------------------------------------------
 
+PENDING_TTL = 3600
+
+
+def _store_pending(kind: str, filename: str, payload: dict) -> str:
+    token = uuid.uuid4().hex
+    with db.connect() as conn:
+        conn.execute("DELETE FROM pending_imports WHERE created_at < ?", (time.time() - PENDING_TTL,))
+        conn.execute("INSERT INTO pending_imports (token, filename, kind, payload, created_at) VALUES (?, ?, ?, ?, ?)",
+                     (token, filename or "", kind, json.dumps(payload), time.time()))
+    return token
+
+
+def _take_pending(conn, token: str) -> dict | None:
+    r = db.one(conn.execute("SELECT * FROM pending_imports WHERE token = ? AND created_at >= ?",
+                            (token, time.time() - PENDING_TTL)))
+    if r:
+        conn.execute("DELETE FROM pending_imports WHERE token = ?", (token,))
+        r["payload"] = json.loads(r["payload"])
+    return r
+
+
+def _sheet_summary(p: dict) -> dict:
+    return {
+        "counts": p["counts"],
+        "skipped": p["skipped"][:200],
+        "flags": p["flags"][:200],
+        "adds": [{"tab": a["tab"], "row": a["row"], "name": a["contact"]["name"], "email": a["contact"]["email"],
+                  "type": a["contact"]["type"], "category": a["contact"]["category"], "status": a["status"]}
+                 for a in p["adds"][:200]],
+        "updates": [{"tab": u["tab"], "row": u["row"], "name": u["name"], "fields": sorted(u["changes"]),
+                     "opt_out": u["opt_out"]} for u in p["updates"][:200]],
+    }
+
+
 @router.post("/import/preview")
 async def import_preview(file: UploadFile = File(...)):
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
         _err(Exception("That file is over 10 MB."))
+    filename = file.filename or ""
+    if filename.lower().endswith((".xlsx", ".xlsm")):
+        try:
+            sheet = partner_sheet.read(data)
+        except partner_sheet.SheetError as e:
+            _err(e)
+        if sheet["tabs"]:
+            # The founder's workbook: every city tab at once, no column mapping needed.
+            with db.connect() as conn:
+                p = partner_sheet.plan(conn, sheet["rows"], settings_store.get_section("import", conn))
+            token = _store_pending("partner_workbook", filename, {"rows": sheet["rows"]})
+            return {"token": token, "filename": filename, "format": "partner_workbook", "tabs": sheet["tabs"],
+                    "skipped_tabs": sheet["skipped_tabs"], "row_count": len(sheet["rows"]), **_sheet_summary(p)}
     try:
-        headers, rows = importer.read_table(file.filename or "", data)
+        headers, rows = importer.read_table(filename, data)
     except importer.ImportError_ as e:
         _err(e)
-    token = uuid.uuid4().hex
-    _pending_imports[token] = {"headers": headers, "rows": rows, "filename": file.filename, "created": time.time()}
-    for k in [k for k, v in _pending_imports.items() if time.time() - v["created"] > 3600]:
-        _pending_imports.pop(k, None)
+    token = _store_pending("table", filename, {"headers": headers, "rows": rows})
     return {
         "token": token,
-        "filename": file.filename,
+        "filename": filename,
+        "format": "table",
         "headers": headers,
         "row_count": len(rows),
         "preview": rows[:8],
@@ -298,22 +342,33 @@ async def import_preview(file: UploadFile = File(...)):
 
 class ImportCommit(BaseModel):
     token: str
-    mapping: dict
+    mapping: dict = Field(default_factory=dict)
     default_type: str = "doctor"
 
 
 @router.post("/import/commit")
 def import_commit(body: ImportCommit):
-    pending = _pending_imports.pop(body.token, None)
-    if not pending:
-        _err(Exception("That upload expired — upload the file again."), 410)
-    if body.mapping.get("email") is None:
-        _err(Exception("Pick which column holds the email address."))
-    contacts, problems = importer.to_contacts(pending["headers"], pending["rows"], body.mapping, body.default_type)
-    added = dup = opted = 0
     with db.connect() as conn:
+        pending = _take_pending(conn, body.token)
+        if not pending:
+            _err(Exception("That upload expired — upload the file again."), 410)
+        source = f"import:{pending['filename']}"
+        if pending["kind"] == "partner_workbook":
+            # Re-plan inside this transaction so the result matches the database as it is now.
+            p = partner_sheet.plan(conn, pending["payload"]["rows"], settings_store.get_section("import", conn))
+            done = partner_sheet.apply(conn, p, source)
+            c = p["counts"]
+            reasons = ", ".join(f"{n} {r}" for r, n in sorted(c["skipped_by_reason"].items())) or "none"
+            db.log_event("import", f"Imported {pending['filename']}: {done['added']} added, {done['updated']} updated, "
+                                   f"{c['unchanged']} unchanged, skipped: {reasons}", conn=conn)
+            return {"format": "partner_workbook", **done, **_sheet_summary(p)}
+        if body.mapping.get("email") is None:
+            _err(Exception("Pick which column holds the email address."))
+        payload = pending["payload"]
+        contacts, problems = importer.to_contacts(payload["headers"], payload["rows"], body.mapping, body.default_type)
+        added = dup = opted = 0
         for c in contacts:
-            cid, reason = outreach.add_contact(conn, c, source=f"import:{pending['filename']}")
+            cid, reason = outreach.add_contact(conn, c, source=source)
             if cid:
                 added += 1
             elif reason == "duplicate":
@@ -321,7 +376,7 @@ def import_commit(body: ImportCommit):
             else:
                 opted += 1
         db.log_event("import", f"Imported {pending['filename']}: {added} added, {dup} duplicates, {opted} opted-out, {len(problems)} invalid rows", conn=conn)
-    return {"added": added, "duplicates": dup, "opted_out": opted, "invalid": problems[:50], "invalid_count": len(problems)}
+    return {"format": "table", "added": added, "duplicates": dup, "opted_out": opted, "invalid": problems[:50], "invalid_count": len(problems)}
 
 
 @router.get("/import/template.csv")

@@ -84,6 +84,15 @@ CREATE TABLE IF NOT EXISTS events (
   contact_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
+
+-- Uploads waiting for the user to confirm the import (kept here, not in memory, so a restart doesn't lose them).
+CREATE TABLE IF NOT EXISTS pending_imports (
+  token      TEXT PRIMARY KEY,
+  filename   TEXT NOT NULL DEFAULT '',
+  kind       TEXT NOT NULL,                       -- table | partner_workbook
+  payload    TEXT NOT NULL,                       -- JSON
+  created_at REAL NOT NULL
+);
 """
 
 
