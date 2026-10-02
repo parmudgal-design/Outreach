@@ -14,11 +14,11 @@ Work through this before the first real send. Owners: **Founder**, **Deployer** 
 ## 2. Setup page
 
 - [ ] **Founder:** Setup → Sender: name, role, phone and registered business address filled in. The pre-send check blocks sending without the address.
-- [ ] **Founder:** Setup → Marketplace pitch: replace the placeholder wording with the real wording (Review shows a warning on every marketplace draft until you do):
+- [ ] **Founder:** Setup → Marketplace pitch: read the built-in wording and confirm it's how you want Dr.Tracker described (edit it there if not; no code change needed):
   - [ ] value proposition for brands
   - [ ] value proposition for professionals
-  - [ ] trial text (only used if `mention_trial` is turned on; see section 5)
-  - [ ] signature name and role
+  - [ ] trial text (only used if `mention_trial` is turned on; the built-in text promises a free first month, so check it's a real offer first; see section 5)
+  - [ ] signature name and role (blank uses the sender's)
 - [ ] **Founder:** the doctor and hospital pitches read correctly for each audience.
 
 ## 3. Contacts

@@ -31,16 +31,19 @@ DEFAULTS: dict[str, dict] = {
         "partner":  {"pitch": "", "props": []},
     },
     # Brand and professional (marketplace) emails, editable on Setup → "Marketplace pitch".
-    # TODO(founder): the marketplace wording below is a placeholder until the founder supplies the real
-    # value propositions. While it's unchanged the pre-send check shows a warning (qa.py).
+    # Each value proposition sits in the email just before a sentence the template adds about the
+    # recipient's own audience, so it says what Dr.Tracker is and why a listing is worth it, and
+    # nothing more. Only claims Dr.Tracker can stand behind: no user numbers, prices or promises.
     "marketplace": {
         "value_prop_brands": (
-            "Dr.Tracker is where people actively managing their health discover the products and professionals "
-            "that help them. Brands that list with us reach that audience at the moment they're making health decisions."
+            "Dr.Tracker is an app people use to keep track of their health day to day, and its marketplace is where "
+            "they discover products that fit what they're working on. Broad paid ads reach a lot of people who "
+            "aren't looking; a listing on Dr.Tracker reaches people who already are."
         ),
         "value_prop_professionals": (
-            "Dr.Tracker helps people who are working on their health find the right professionals. Practices that "
-            "list with us are found by people looking for exactly the care they offer."
+            "Dr.Tracker is an app people use to keep track of their health, and its marketplace helps them find the "
+            "right professional when they need one. We take care of the visibility, so being found doesn't become "
+            "another job on your list."
         ),
         "mention_trial": False,     # off: no prices, fees, trials or offers at all
         "trial_text": "We're offering early partners a free first month to try it.",

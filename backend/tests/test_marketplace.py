@@ -1,6 +1,7 @@
 """Marketplace pitch: brand and professional contacts, greetings, templates, prompts and checks.
 All contacts are fake (backend/tests/fixtures/)."""
 import copy
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,12 +14,7 @@ from backend.app.settings_store import DEFAULTS
 FIXTURES = Path(__file__).parent / "fixtures"
 SENDER = {"name": "Ananya Gupta", "role": "Founder, Dr.Tracker", "phone": "+91 98765 43210", "tone": "warm",
           "address": "HSR Layout, Bengaluru 560102"}
-# Stands in for the founder's real wording (the shipped defaults are placeholders and trigger a warning).
-MARKET = {**DEFAULTS["marketplace"],
-          "value_prop_brands": "Dr.Tracker is where people who are actively managing their health find the products and "
-                               "professionals that help them. Listed brands reach that audience as they make health decisions.",
-          "value_prop_professionals": "Dr.Tracker helps people who are working on their health find the right professionals. "
-                                      "Listed practices are found by people looking for exactly the care they offer."}
+MARKET = DEFAULTS["marketplace"]
 
 
 def load(name: str) -> list[dict]:
@@ -291,7 +287,7 @@ def test_import_draft_and_review_over_api(configured):
     assert {x["key"] for x in meta["categories"]["brand"]} == {"FD", "SUP", "PRO", "DV"}
 
 
-def test_placeholder_marketplace_wording_is_flagged():
-    d = TemplateDrafter().initial(CONTACTS["SUP"], SENDER, DEFAULTS["pitches"], DEFAULTS["marketplace"])
-    issues = qa.check(d.subject, d.body, CONTACTS["SUP"], SENDER, DEFAULTS["pitches"], market=DEFAULTS["marketplace"])
-    assert any("placeholder wording" in i["message"] and i["level"] == "warn" for i in issues)
+def test_shipped_marketplace_wording_makes_no_unbacked_claims():
+    for text in (DEFAULTS["marketplace"]["value_prop_brands"], DEFAULTS["marketplace"]["value_prop_professionals"]):
+        assert not qa.claim_in(text) and not qa.PRICING_RE.search(text) and not qa.REFERRAL_RE.search(text)
+        assert not re.search(r"\d", text)  # no user numbers or statistics

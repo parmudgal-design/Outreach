@@ -10,12 +10,6 @@ from backend.app.services import outreach, partner_sheet, qa
 
 FIXTURE = Path(__file__).parent / "fixtures" / "partner_list_sample.xlsx"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-FOUNDER_WORDING = {
-    "value_prop_brands": "Dr.Tracker is where people who are actively managing their health find the products and "
-                         "professionals that help them. Listed brands reach that audience as they make health decisions.",
-    "value_prop_professionals": "Dr.Tracker helps people who are working on their health find the right professionals. "
-                                "Listed practices are found by people looking for exactly the care they offer.",
-}
 
 
 def edited(changes: dict) -> bytes:
@@ -87,7 +81,6 @@ def test_import_maps_fields_types_and_sheet_statuses(app_client):
 
 def test_only_not_contacted_rows_are_drafted_and_drafts_are_clean(configured):
     c = configured
-    c.put("/api/settings/marketplace", json=FOUNDER_WORDING)
     commit(c, upload(c))
     worker.tick()
     worker.tick()
@@ -163,7 +156,6 @@ def test_reimport_fixes_legacy_contacts_and_replaces_stale_drafts(configured):
         assert outreach.get_message(conn, old["id"])["status"] == "discarded"
         contact = outreach.get_contact(conn, r["id"])
     assert (contact["type"], contact["category"], contact["status"]) == ("brand", "FD", "new")
-    c.put("/api/settings/marketplace", json=FOUNDER_WORDING)
     worker.tick()
     fresh = next(m for m in c.get("/api/review").json() if m["contact_email"] == "hello@crunchwell.test")
     assert fresh["body"].startswith("Hello Crunchwell Foods team,") and "reading on her" not in fresh["body"]
