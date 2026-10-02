@@ -25,13 +25,15 @@
     return "in " + Math.round(s / 60) + " min";
   }
 
+  var OFFLINE = "Can't reach the Outreach server — it has probably stopped. Start it again (./run.sh) and reload this page.";
+  function offline() { throw new Error(OFFLINE); }
   function api(method, path, body, isForm) {
     var opts = { method: method, headers: {} };
     if (body !== undefined) {
       if (isForm) opts.body = body;
       else { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
     }
-    return fetch("/api" + path, opts).then(function (r) {
+    return fetch("/api" + path, opts).catch(offline).then(function (r) {
       return r.text().then(function (t) {
         var data = t ? JSON.parse(t) : null;
         if (r.status === 401 && path !== "/auth/login" && authState && authState.users_exist) { showLogin(); }
@@ -114,7 +116,10 @@
         '<div class="row">Email: <strong style="margin-left:auto;color:var(--ink)">' + (c.email_mode === "smtp" ? "Live (SMTP)" : "Dry run") + "</strong></div>" +
         '<div class="row">Drafts: <strong style="margin-left:auto;color:var(--ink)">' + (c.drafter === "claude" ? "Claude" : "Templates") + "</strong></div>" + authFoot();
       if ($("#signOut")) $("#signOut").onclick = function (e) { e.preventDefault(); signOut(); };
-    }).catch(function () {});
+    }).catch(function (e) {
+      if (e.message === OFFLINE) $("#sideFoot").innerHTML = '<div class="row"><span class="status-dot warn"></span><strong style="color:var(--danger)">Server not reachable</strong></div>' +
+        '<div class="row" style="font-size:12px;line-height:1.4">Start it again with <code>./run.sh</code>, then reload.</div>';
+    });
   }
   setInterval(refreshSide, 20000);
 
@@ -208,7 +213,7 @@
     var fd = new FormData();
     fd.append("file", f);
     toast("Updating Status in " + f.name + "…");
-    fetch("/api/export/partner-workbook", { method: "POST", body: fd }).then(function (r) {
+    fetch("/api/export/partner-workbook", { method: "POST", body: fd }).catch(offline).then(function (r) {
       if (!r.ok) return r.json().then(function (d) { throw new Error(d.detail || r.statusText); });
       var summary = JSON.parse(r.headers.get("X-Status-Summary") || "{}");
       return r.blob().then(function (blob) {
