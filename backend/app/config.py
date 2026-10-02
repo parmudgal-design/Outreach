@@ -9,9 +9,23 @@ DATA_DIR = Path(os.environ.get("OUTREACH_DATA_DIR", ROOT / "data"))
 DB_PATH = Path(os.environ.get("OUTREACH_DB", DATA_DIR / "outreach.db"))
 FRONTEND_DIR = ROOT / "frontend"
 
-# Optional HTTP basic-auth password for the whole app. Leave unset for local
-# use; set it before exposing the server on a network.
-APP_PASSWORD = os.environ.get("OUTREACH_PASSWORD", "")
+# The address the server listens on (run.sh and the Dockerfile pass it to uvicorn too).
+# Anything other than localhost counts as "exposed": the app then refuses to start
+# without at least one user and without OUTREACH_SECRET_KEY.
+HOST = os.environ.get("HOST", "127.0.0.1")
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+# Fernet key that encrypts the API key and mail passwords in the database
+# (`python -m backend.app.cli gen-key`). Optional on localhost.
+SECRET_KEY = os.environ.get("OUTREACH_SECRET_KEY", "").strip()
+
+# Mark the session cookie Secure (set behind HTTPS).
+COOKIE_SECURE = os.environ.get("OUTREACH_COOKIE_SECURE", "0") == "1"
+SESSION_DAYS = int(os.environ.get("OUTREACH_SESSION_DAYS", "14"))
+
+
+def is_local_bind() -> bool:
+    return HOST in LOCAL_HOSTS
 
 # Seconds between background worker ticks.
 WORKER_TICK_SECONDS = float(os.environ.get("OUTREACH_TICK_SECONDS", "15"))

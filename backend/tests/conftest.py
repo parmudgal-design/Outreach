@@ -18,7 +18,8 @@ def app_client(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from backend.app.main import app
 
-    with TestClient(app) as client:
+    # Connect as this machine: with no user accounts the app is only open to localhost.
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client
 
 

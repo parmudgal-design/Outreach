@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Start Dr.Tracker Outreach: sets up .venv on first run, then serves the UI + API + background worker.
 #   ./run.sh                      -> http://127.0.0.1:8000
-#   HOST=0.0.0.0 PORT=8080 OUTREACH_PASSWORD=secret ./run.sh   (expose on a network — set a password!)
+#   HOST=0.0.0.0 PORT=8080 OUTREACH_SECRET_KEY=… ./run.sh   (exposed on a network: needs a user account
+#                                                               and a secret key — see docs/DEPLOYMENT.md)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,9 +17,16 @@ if [ ! -x .venv/bin/python ]; then
 fi
 .venv/bin/python -m pip install -q -r requirements.txt
 
-if [ -n "${HOST:-}" ] && [ "${HOST}" != "127.0.0.1" ] && [ -z "${OUTREACH_PASSWORD:-}" ]; then
-  echo "Refusing to listen on ${HOST} without OUTREACH_PASSWORD set (the UI holds your API keys)." >&2
-  exit 1
-fi
+export HOST="${HOST:-127.0.0.1}"
+case "${HOST}" in
+  127.0.0.1|localhost|::1) ;;
+  *)
+    # The app enforces this too (and also needs at least one user); failing here is just quicker.
+    if [ -z "${OUTREACH_SECRET_KEY:-}" ]; then
+      echo "Refusing to listen on ${HOST} without OUTREACH_SECRET_KEY (it encrypts the API key and mail passwords)." >&2
+      echo "Generate one with: .venv/bin/python -m backend.app.cli gen-key" >&2
+      exit 1
+    fi ;;
+esac
 
-exec .venv/bin/python -m uvicorn backend.app.main:app --host "${HOST:-127.0.0.1}" --port "${PORT:-8000}"
+exec .venv/bin/python -m uvicorn backend.app.main:app --host "${HOST}" --port "${PORT:-8000}"

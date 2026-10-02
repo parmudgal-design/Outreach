@@ -1,0 +1,27 @@
+# Caddy gets and renews a Let's Encrypt certificate for $DOMAIN automatically.
+# Ports 80 and 443 must be reachable from the internet, and DNS must point at this server.
+{
+	# Contact address for Let's Encrypt expiry notices. Recommended.
+	# If you leave ACME_EMAIL empty, delete this line, or Caddy will refuse to start.
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Uploads are capped at 10 MB by the app; leave a little headroom.
+	request_body {
+		max_size 12MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	reverse_proxy app:8000
+}

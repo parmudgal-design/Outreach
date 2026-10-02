@@ -1,6 +1,7 @@
 """SQLite storage. One short-lived connection per unit of work keeps this safe to
 use from the API handlers and the worker thread at the same time (WAL mode lets
 readers and the single writer overlap)."""
+import contextvars
 import json
 import sqlite3
 import time
@@ -85,6 +86,24 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 
+CREATE TABLE IF NOT EXISTS users (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  email         TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name          TEXT NOT NULL DEFAULT '',
+  password_hash TEXT NOT NULL,                    -- scrypt, see auth.py
+  role          TEXT NOT NULL DEFAULT 'member',   -- admin | member
+  created_at    REAL NOT NULL,
+  last_login_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash   TEXT PRIMARY KEY,                  -- sha256 of the cookie value; the cookie itself is never stored
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   REAL NOT NULL,
+  expires_at   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 -- Uploads waiting for the user to confirm the import (kept here, not in memory, so a restart doesn't lose them).
 CREATE TABLE IF NOT EXISTS pending_imports (
   token      TEXT PRIMARY KEY,
@@ -134,6 +153,10 @@ MIGRATIONS = [
     ("contacts", "description", "TEXT NOT NULL DEFAULT ''"),    # what they sell or do, from the sheet's notes
     ("contacts", "source_url", "TEXT NOT NULL DEFAULT ''"),
     ("contacts", "needs_check", "TEXT NOT NULL DEFAULT ''"),    # why a person should check this row first
+    # Who did it: a user's email, or e.g. "campaign" for the background worker.
+    ("events", "actor", "TEXT"),
+    ("messages", "approved_by", "TEXT"),
+    ("messages", "sent_by", "TEXT"),
 ]
 
 
@@ -175,9 +198,22 @@ def one(cur) -> dict | None:
     return dict(r) if r else None
 
 
-def log_event(kind: str, message: str, level: str = "info", contact_id: int | None = None, conn=None) -> None:
-    sql = "INSERT INTO events (ts, level, kind, message, contact_id) VALUES (?, ?, ?, ?, ?)"
-    args = (time.time(), level, kind, message, contact_id)
+# The signed-in user handling the current request (set by the auth middleware); None for the worker.
+_actor: contextvars.ContextVar[str | None] = contextvars.ContextVar("actor", default=None)
+
+
+def set_actor(actor: str | None):
+    return _actor.set(actor)
+
+
+def current_actor() -> str | None:
+    return _actor.get()
+
+
+def log_event(kind: str, message: str, level: str = "info", contact_id: int | None = None, conn=None,
+              actor: str | None = None) -> None:
+    sql = "INSERT INTO events (ts, level, kind, message, contact_id, actor) VALUES (?, ?, ?, ?, ?, ?)"
+    args = (time.time(), level, kind, message, contact_id, actor or current_actor())
     if conn is not None:
         conn.execute(sql, args)
         return

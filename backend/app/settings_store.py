@@ -6,7 +6,7 @@ stored value.
 """
 import copy
 
-from . import db
+from . import db, secretbox
 
 SECRET_FIELDS = {
     ("ai", "anthropic_api_key"),
@@ -113,6 +113,7 @@ def get_section(section: str, conn=None) -> dict:
         with db.connect() as c:
             return get_section(section, c)
     stored = db.get_json(conn, f"section:{section}", {})
+    stored = {k: (secretbox.decrypt(v) if (section, k) in SECRET_FIELDS else v) for k, v in (stored or {}).items()}
     if section == "pitches":
         merged = copy.deepcopy(DEFAULTS["pitches"])
         for t, v in (stored or {}).items():
@@ -163,5 +164,41 @@ def update_section(section: str, patch: dict, conn=None) -> dict:
     for section_name, field in SECRET_FIELDS:
         if section_name == section and patch.get(f"clear_{field}"):
             current[field] = ""
-    db.set_json(conn, f"section:{section}", current)
+    db.set_json(conn, f"section:{section}", _sealed(section, current))
     return current
+
+
+def _sealed(section: str, values: dict) -> dict:
+    return {k: (secretbox.encrypt(v) if (section, k) in SECRET_FIELDS else v) for k, v in values.items()}
+
+
+def migrate_secrets(conn) -> dict:
+    """Run at startup. With a key: encrypt any plaintext secrets. Without one: refuse if any are encrypted.
+    Either way, prove every encrypted value decrypts, so a wrong key fails at startup, not mid-campaign."""
+    encrypted = plaintext = 0
+    for section in {s for s, _ in SECRET_FIELDS}:
+        stored = db.get_json(conn, f"section:{section}", None)
+        if not stored:
+            continue
+        for (sec, field) in SECRET_FIELDS:
+            if sec != section or not stored.get(field):
+                continue
+            if secretbox.is_encrypted(stored[field]):
+                secretbox.decrypt(stored[field])  # raises SecretKeyError if the key is missing or wrong
+                encrypted += 1
+            else:
+                plaintext += 1
+        if secretbox.enabled() and plaintext:
+            db.set_json(conn, f"section:{section}", _sealed(section, stored))
+    migrated = plaintext if secretbox.enabled() else 0
+    if migrated:
+        db.log_event("security", f"Encrypted {migrated} stored secret(s) with OUTREACH_SECRET_KEY", conn=conn)
+    return {"encrypted": encrypted + migrated, "plaintext": plaintext - migrated, "migrated": migrated}
+
+
+def has_plaintext_secrets(conn) -> bool:
+    for section, field in SECRET_FIELDS:
+        value = (db.get_json(conn, f"section:{section}", {}) or {}).get(field)
+        if value and not secretbox.is_encrypted(value):
+            return True
+    return False

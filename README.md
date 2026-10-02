@@ -18,7 +18,14 @@ Then open the page and follow the **Getting started** checklist on the Dashboard
 3. **Connections:** paste an Anthropic API key for AI-written drafts, and an email account (for Gmail, an App Password) to send for real. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run).
 4. **Review:** read and edit the drafts, then approve. **Campaign → Start.**
 
-To expose it beyond localhost, set a password: `HOST=0.0.0.0 OUTREACH_PASSWORD=… ./run.sh`. The script refuses to start without one, because the database holds your keys.
+Going live: work through [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md). Hosting (Docker + Caddy for HTTPS, backups, restore) is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), and sending-domain setup (SPF, DKIM, DMARC, warm-up) in [docs/DELIVERABILITY.md](docs/DELIVERABILITY.md).
+
+## Security
+
+- **Logins:** each person gets their own account (scrypt-hashed password, server-side session cookie). Create the first one under **Setup → Users** or with `python -m backend.app.cli create-admin --email you@… --name "…"`. Once any account exists, signing in is required. With no accounts the app is open only to requests from this computer. The Activity log records who approved and who sent each email.
+- **Secrets at rest:** set `OUTREACH_SECRET_KEY` (generate with `python -m backend.app.cli gen-key`) and the API key and mail passwords are encrypted in the database. Existing plaintext values are encrypted at startup. Without the key they stay plaintext and the sidebar warns you. The app refuses to start if encrypted values exist and the key is missing or wrong.
+- **Exposed hosts:** on any `HOST` other than localhost the app refuses to start without at least one user and without `OUTREACH_SECRET_KEY`.
+- **Backups:** `python scripts/backup.py` uses SQLite's online backup API, keeps 14 daily copies, and is safe while the app runs. Schedule and restore steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## How it works
 
@@ -50,6 +57,9 @@ spreadsheet ─► contacts ─► specialty detection ─► draft (Claude or t
 | SMTP sending and IMAP reply/bounce detection | `backend/app/services/mailer.py`, `inbox.py` |
 | Spreadsheet import | `backend/app/services/importer.py` |
 | Storage (SQLite, `data/outreach.db`, owner-only permissions) | `backend/app/db.py` |
+| The founder's partner workbook: import, re-import, Status write-back | `backend/app/services/partner_sheet.py` |
+| Logins, sessions, startup safety checks; admin CLI | `backend/app/auth.py`, `backend/app/cli.py` |
+| Secret encryption (Fernet) | `backend/app/secretbox.py` |
 | UI (plain HTML/CSS/JS, no build step) | `frontend/` |
 
 ## How the emails are written
@@ -66,7 +76,10 @@ The emails follow the demo emails in the PDF, and are invitations to come on boa
 
 Contact types `brand` and `professional` (`b`/`p` in the type column) get a different pitch: list on Dr.Tracker's marketplace and be found by people actively managing their health. There's no patient-monitoring talk.
 
-- **Import:** the simple layout works (`Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`). `Category` holds the type, `Speciality` the marketplace category (e.g. "Supplements", "Nutritionist / dietitian"), `Product` a one-line description, and `Remarks` may end with `Partner ID B-SUP-T2-MUM-01`. A founder-style sheet also works: title rows above the header, and a single `Notes / Source` cell holding the site, description, source and a `CHECK:` note.
+- **The founder's workbook:** upload it exactly as it is. Every tab whose header row is `ID | Name | City | Type | Category | Tier | Phone | Email | Status | Notes / Source` is read (Legend and other tabs are skipped). The preview shows how many contacts will be added, updated, left as they are, and skipped by reason, before anything is saved. Skipped: no or invalid email, duplicate email (the first row wins), an unrecognised Status, and crisis or government helplines (the word list is under **Setup → Never import**). The sheet's Status is imported: Contacted, Replied, Interested and Not interested rows are never drafted, and Bounced and Unsubscribed rows go onto the opt-out list.
+- **Re-importing an updated workbook** updates contacts in place, matched by email, then by partner ID with the tier ignored (the ID changes when a TBD tier is filled in). Only filled-in cells overwrite. Status and history aren't changed, except that a row newly marked Bounced or Unsubscribed adds an opt-out. An email change is held back (and flagged) if the old address was already emailed. Machine-written drafts for updated contacts are replaced; hand-edited ones are kept.
+- **Status back to the sheet:** **Contacts → Update workbook** takes the current workbook and returns the same file with only the Status column changed (Not contacted, Contacted, Replied, Interested, Not interested, Bounced, Unsubscribed). **Status CSV** gives the same keyed by partner ID. In the app, "Interested" and "Not interested" are the adopted and declined statuses. The workbook is rewritten with openpyxl, which keeps values, formatting, merged cells and frozen panes but drops charts, images and some advanced features, so keep the original.
+- **Other layouts:** the simple layout works (`Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`). `Category` holds the type, `Speciality` the marketplace category (e.g. "Supplements", "Nutritionist / dietitian"), `Product` a one-line description, and `Remarks` may end with `Partner ID B-SUP-T2-MUM-01`. A founder-style sheet also works: title rows above the header, and a single `Notes / Source` cell holding the site, description, source and a `CHECK:` note.
 - **Categories** (`services/marketplace.py`): brands FD wellness food, SUP supplements, PRO protein, DV devices; professionals NT nutritionist, GP general physician, SPC specialist/clinic, MH mental health, PT physio/trainer. Each category has its own opening, tone and ask.
 - **Greetings** (`services/greeting.py`): a named person is greeted by name ("Dear Dr. Hooda", "Dear Sridevi"). Otherwise the team is greeted ("Hello NOTO team", "Hello Kenia Eye Hospital team").
 - **Wording:** edit it under **Setup → Marketplace pitch**. That covers the value propositions, the trial switch and trial text, and the signature.
@@ -100,4 +113,5 @@ The tests run the whole pipeline (import → draft → approve → send over rea
 
 - **Real Claude drafts:** the Claude API call is written against the current SDK, but it hasn't run with a real key. Use **Connections → Test** once you add one, then read the first few drafts closely.
 - **Real Gmail sending and IMAP:** tested only against a local SMTP server and synthetic inbound messages. Use **Send test** and **Test** on the Connections page with your account first.
-- **Deliverability at scale:** a personal inbox is fine for 10–30 emails a day. For more, send from your own domain through a transactional provider's SMTP with SPF, DKIM and DMARC set up.
+- **Deliverability at scale:** a Workspace mailbox on dr-tracker.com (SPF, DKIM and DMARC are already published) is fine for 20–30 emails a day. For more, see [docs/DELIVERABILITY.md](docs/DELIVERABILITY.md).
+- **Docker image:** the Dockerfile, compose file and Caddyfile are checked (`docker compose config`, `caddy adapt`) but the image hasn't been built and run here. Try it on the server first.

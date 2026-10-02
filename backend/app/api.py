@@ -6,11 +6,11 @@ import time
 import uuid
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import db, settings_store, worker
+from . import auth, config, db, settings_store, worker
 from .services import drafting, importer, inbox, mailer, marketplace, outreach, partner_sheet, qa, schedule, specialties
 
 router = APIRouter(prefix="/api")
@@ -19,6 +19,113 @@ router = APIRouter(prefix="/api")
 
 def _err(e: Exception, code: int = 400):
     raise HTTPException(status_code=code, detail=str(e))
+
+
+# --- Sign-in and users ---------------------------------------------------------
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class UserIn(BaseModel):
+    email: str
+    name: str = ""
+    password: str
+    role: str = "member"
+
+
+class PasswordIn(BaseModel):
+    current: str = ""
+    new: str
+
+
+def _user(request: Request) -> dict | None:
+    return getattr(request.state, "user", None)
+
+
+def _require_admin(request: Request) -> None:
+    """Admins manage users. With no users yet (local only — the middleware enforces that) anyone here may."""
+    u = _user(request)
+    if u is not None and u["role"] != "admin":
+        _err(Exception("Only an admin can manage users."), 403)
+
+
+@router.get("/auth/state")
+def auth_state(request: Request):
+    with db.connect() as conn:
+        user = auth.user_for_token(conn, request.cookies.get(auth.COOKIE))
+        users_exist = auth.user_count(conn) > 0
+        local_open = not users_exist and (request.client.host if request.client else "") in ("127.0.0.1", "::1", "localhost")
+        return {"user": user, "users_exist": users_exist, "local_open": local_open,
+                "warnings": auth.warnings(conn) if (user or local_open) else []}
+
+
+@router.post("/auth/login")
+def auth_login(body: LoginIn, response: Response):
+    with db.connect() as conn:
+        try:
+            token, user = auth.login(conn, body.email, body.password)
+        except auth.AuthError as e:
+            _err(e, 401)
+    response.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", secure=config.COOKIE_SECURE,
+                        max_age=config.SESSION_DAYS * 86400, path="/")
+    return {"user": user}
+
+
+@router.post("/auth/logout")
+def auth_logout(request: Request, response: Response):
+    with db.connect() as conn:
+        auth.logout(conn, request.cookies.get(auth.COOKIE))
+    response.delete_cookie(auth.COOKIE, path="/")
+    return {"ok": True}
+
+
+@router.post("/auth/password")
+def auth_password(body: PasswordIn, request: Request, response: Response):
+    u = _user(request)
+    if u is None:
+        _err(Exception("Sign in first."), 401)
+    with db.connect() as conn:
+        row = db.one(conn.execute("SELECT * FROM users WHERE id = ?", (u["id"],)))
+        if not auth.verify_password(body.current, row["password_hash"]):
+            _err(Exception("Your current password isn't right."), 400)
+        try:
+            auth.set_password(conn, u["id"], body.new)
+        except auth.AuthError as e:
+            _err(e)
+        db.log_event("user", f"{u['email']} changed their password", conn=conn)
+    response.delete_cookie(auth.COOKIE, path="/")
+    return {"ok": True, "message": "Password changed — sign in again."}
+
+
+@router.get("/users")
+def list_users(request: Request):
+    _require_admin(request)
+    with db.connect() as conn:
+        return [auth.public(u) for u in db.rows(conn.execute("SELECT * FROM users ORDER BY created_at"))]
+
+
+@router.post("/users")
+def add_user(body: UserIn, request: Request):
+    _require_admin(request)
+    with db.connect() as conn:
+        role = "admin" if auth.user_count(conn) == 0 else body.role  # the first account is always an admin
+        try:
+            return auth.create_user(conn, body.email, body.name, body.password, role)
+        except auth.AuthError as e:
+            _err(e)
+
+
+@router.delete("/users/{user_id}")
+def remove_user(user_id: int, request: Request):
+    _require_admin(request)
+    with db.connect() as conn:
+        try:
+            auth.delete_user(conn, user_id, _user(request))
+        except auth.AuthError as e:
+            _err(e)
+    return {"ok": True}
 
 
 # --- Settings ----------------------------------------------------------------
@@ -449,7 +556,7 @@ def discard_message(message_id: int):
 @router.post("/messages/{message_id}/retry")
 def retry_message(message_id: int):
     with db.connect() as conn:
-        conn.execute("UPDATE messages SET status = 'draft', error = NULL, updated_at = ? WHERE id = ? AND status = 'failed'", (time.time(), message_id))
+        conn.execute("UPDATE messages SET status = 'draft', error = NULL, approved_by = NULL, updated_at = ? WHERE id = ? AND status = 'failed'", (time.time(), message_id))
     return _msg_action(lambda conn, mid: outreach.get_message(conn, mid), message_id)
 
 

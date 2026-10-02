@@ -1,0 +1,36 @@
+# Production stack: the app (UI + API + worker) behind Caddy for automatic HTTPS.
+# Setup steps: docs/DEPLOYMENT.md. Run only one `app` container: SQLite + in-process worker.
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      OUTREACH_COOKIE_SECURE: "1"
+    volumes:
+      - outreach_data:/data
+    restart: unless-stopped
+    # No published ports: only Caddy talks to the app, over the compose network.
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    # Only what Caddy needs; values come from .env (compose reads it for ${...}).
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  outreach_data:
+  caddy_data:
+  caddy_config:

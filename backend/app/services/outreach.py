@@ -172,10 +172,10 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
             (now, contact_id),
         )
         cur = conn.execute(
-            """INSERT INTO messages (contact_id, kind, subject, body, status, drafted_by, in_reply_to, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO messages (contact_id, kind, subject, body, status, drafted_by, in_reply_to, approved_by, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (contact_id, kind, d.subject, d.body, status, d.drafted_by,
-             previous["message_id"] if previous else None, now, now),
+             previous["message_id"] if previous else None, AUTO_APPROVED if status == "approved" else None, now, now),
         )
         if contact["status"] == "new":
             conn.execute("UPDATE contacts SET status = 'drafted' WHERE id = ?", (contact_id,))
@@ -219,10 +219,14 @@ def update_message(conn, message_id: int, subject: str | None, body: str | None)
     if status == "approved" and settings_store.get_section("campaign", conn)["require_approval"]:
         status = "draft"
     conn.execute(
-        "UPDATE messages SET subject = ?, body = ?, drafted_by = ?, status = ?, updated_at = ? WHERE id = ?",
-        (new_subject, new_body, by, status, time.time(), message_id),
+        "UPDATE messages SET subject = ?, body = ?, drafted_by = ?, status = ?, approved_by = CASE WHEN ? = 'draft' THEN NULL ELSE approved_by END, updated_at = ? WHERE id = ?",
+        (new_subject, new_body, by, status, status, time.time(), message_id),
     )
     return get_message(conn, message_id)
+
+
+AUTO_APPROVED = "auto (approval not required)"
+WORKER = "campaign"
 
 
 def approve(conn, message_id: int) -> dict:
@@ -232,12 +236,16 @@ def approve(conn, message_id: int) -> dict:
     issues = check_message(conn, m)
     if qa.has_errors(issues):
         raise OutreachError("Fix the pre-send errors first: " + "; ".join(i["message"] for i in issues if i["level"] == "error"))
-    conn.execute("UPDATE messages SET status = 'approved', updated_at = ? WHERE id = ?", (time.time(), message_id))
+    by = db.current_actor() or "local (no sign-in)"
+    conn.execute("UPDATE messages SET status = 'approved', approved_by = ?, updated_at = ? WHERE id = ?", (by, time.time(), message_id))
+    contact = get_contact(conn, m["contact_id"])
+    db.log_event("approve", f"Approved {'follow-up' if m['kind'] == 'followup' else 'email'} to {contact['name']} <{contact['email']}>",
+                 contact_id=contact["id"], conn=conn, actor=by)
     return get_message(conn, message_id)
 
 
 def unapprove(conn, message_id: int) -> dict:
-    conn.execute("UPDATE messages SET status = 'draft', updated_at = ? WHERE id = ? AND status = 'approved'", (time.time(), message_id))
+    conn.execute("UPDATE messages SET status = 'draft', approved_by = NULL, updated_at = ? WHERE id = ? AND status = 'approved'", (time.time(), message_id))
     return get_message(conn, message_id)
 
 
@@ -324,10 +332,12 @@ def send(message_id: int, transport=None) -> dict:
 
 def _record_sent(message_id: int, m: dict, contact: dict, msg, subject: str, transport_name: str) -> dict:
     now = time.time()
+    # A person pressing "Send now", or the background campaign sending what someone approved.
+    by = db.current_actor() or (WORKER if m.get("approved_by") else "local (no sign-in)")
     with db.connect() as conn:
         conn.execute(
-            "UPDATE messages SET status = 'sent', sent_at = ?, message_id = ?, transport = ?, subject = ?, updated_at = ? WHERE id = ?",
-            (now, msg["Message-ID"], transport_name, subject, now, message_id),
+            "UPDATE messages SET status = 'sent', sent_at = ?, message_id = ?, transport = ?, subject = ?, sent_by = ?, updated_at = ? WHERE id = ?",
+            (now, msg["Message-ID"], transport_name, subject, by, now, message_id),
         )
         extra = ", followups_sent = followups_sent + 1" if m["kind"] == "followup" else ""
         conn.execute(
@@ -335,8 +345,9 @@ def _record_sent(message_id: int, m: dict, contact: dict, msg, subject: str, tra
             (now, now, contact["id"]),
         )
         label = "Dry run — recorded" if transport_name == "dry_run" else "Sent"
-        db.log_event("send", f"{label} {'follow-up' if m['kind'] == 'followup' else 'email'} to {contact['name']} <{contact['email']}>",
-                     contact_id=contact["id"], conn=conn)
+        approved = f" (approved by {m['approved_by']})" if m.get("approved_by") else ""
+        db.log_event("send", f"{label} {'follow-up' if m['kind'] == 'followup' else 'email'} to {contact['name']} <{contact['email']}>{approved}",
+                     contact_id=contact["id"], conn=conn, actor=by)
         return get_message(conn, message_id)
 
 

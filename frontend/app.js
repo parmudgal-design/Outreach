@@ -34,6 +34,7 @@
     return fetch("/api" + path, opts).then(function (r) {
       return r.text().then(function (t) {
         var data = t ? JSON.parse(t) : null;
+        if (r.status === 401 && path !== "/auth/login" && authState && authState.users_exist) { showLogin(); }
         if (!r.ok) {
           var msg = data && data.detail ? (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)) : r.statusText;
           throw new Error(msg);
@@ -111,7 +112,8 @@
         (c.running ? (c.in_window ? "Campaign running" : "Running — outside window") : "Campaign paused") + "</div>" +
         '<div class="row">Sent today: <strong style="margin-left:auto;color:var(--ink)">' + c.sent_today + " / " + c.daily_cap + "</strong></div>" +
         '<div class="row">Email: <strong style="margin-left:auto;color:var(--ink)">' + (c.email_mode === "smtp" ? "Live (SMTP)" : "Dry run") + "</strong></div>" +
-        '<div class="row">Drafts: <strong style="margin-left:auto;color:var(--ink)">' + (c.drafter === "claude" ? "Claude" : "Templates") + "</strong></div>";
+        '<div class="row">Drafts: <strong style="margin-left:auto;color:var(--ink)">' + (c.drafter === "claude" ? "Claude" : "Templates") + "</strong></div>" + authFoot();
+      if ($("#signOut")) $("#signOut").onclick = function (e) { e.preventDefault(); signOut(); };
     }).catch(function () {});
   }
   setInterval(refreshSide, 20000);
@@ -649,8 +651,8 @@
   function loadActivity() {
     var body = $("#actBody");
     if (activityTab === "events") return api("GET", "/activity").then(function (rows) {
-      body.innerHTML = rows.length ? '<div class="table-wrap"><table><thead><tr><th>When</th><th>What</th><th></th></tr></thead><tbody>' + rows.map(function (e) {
-        return "<tr><td style=\"white-space:nowrap\">" + fmtTime(e.ts) + "</td><td>" + esc(e.message) + "</td><td>" + (e.level !== "info" ? badge(e.level, e.level) : badge("", e.kind)) + "</td></tr>";
+      body.innerHTML = rows.length ? '<div class="table-wrap"><table><thead><tr><th>When</th><th>What</th><th>Who</th><th></th></tr></thead><tbody>' + rows.map(function (e) {
+        return "<tr><td style=\"white-space:nowrap\">" + fmtTime(e.ts) + "</td><td>" + esc(e.message) + '</td><td class="muted">' + esc(e.actor || "") + "</td><td>" + (e.level !== "info" ? badge(e.level, e.level) : badge("", e.kind)) + "</td></tr>";
       }).join("") + "</tbody></table></div>" : '<div class="card"><div class="empty"><span class="serif">Nothing yet</span></div></div>';
     });
     if (activityTab === "outbox") return api("GET", "/outbox").then(function (rows) {
@@ -716,6 +718,7 @@
             '<div class="field"><label>Signature role</label><input type="text" id="m_signature_role" value="' + esc(mk.signature_role) + '" placeholder="' + esc(sd.role || "Same as sender") + '"></div></div>' +
             '<p class="hint">Leave the signature blank to use the sender details above.</p>' +
             '<div class="btn-row"><button class="btn" id="saveMarket">Save marketplace pitch</button></div></div>' +
+          '<div class="card" id="usersCard"><h3>Users</h3><p class="sub">Everyone who reviews or sends gets their own sign-in, and the Activity log records who approved and sent each email. Once the first account exists, signing in is required.</p><div id="usersList" class="muted">Loading…</div></div>' +
           '<div class="card"><h3>Never import</h3><p class="sub">Rows whose Name or Notes contain any of these words are skipped on import and listed in the summary. Crisis lines and government helplines must never get marketing email.</p>' +
             '<div class="field"><label>One per line (whole words, any case)</label><textarea rows="5" id="i_blocked">' + esc((s["import"].blocked_patterns || []).join("\n")) + "</textarea></div>" +
             '<div class="btn-row"><button class="btn secondary" id="saveImport">Save</button></div></div>' +
@@ -743,6 +746,7 @@
           ["value_prop_brands", "value_prop_professionals", "trial_text", "signature_name", "signature_role"].forEach(function (k) { patch[k] = $("#m_" + k).value.trim(); });
           api("PUT", "/settings/marketplace", patch).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
         };
+        loadUsers();
         $("#saveImport").onclick = function () {
           var list = $("#i_blocked").value.split("\n").map(function (x) { return x.trim(); }).filter(Boolean);
           api("PUT", "/settings/import", { blocked_patterns: list }).then(function (r) { settingsCache = r; toast("Saved"); }).catch(fail);
@@ -757,6 +761,37 @@
       });
     },
   };
+
+  function loadUsers() {
+    var me = authState && authState.user;
+    var isAdmin = !me || me.role === "admin";
+    var form = '<h4 style="margin:16px 0 8px">' + (authState && authState.users_exist ? "Add a user" : "Create the first account (an admin)") + "</h4>" +
+      '<div class="field-row"><div class="field"><label>Email</label><input type="email" id="u_email"></div><div class="field"><label>Name</label><input type="text" id="u_name"></div></div>' +
+      '<div class="field-row"><div class="field"><label>Password (10+ characters)</label><input type="password" id="u_password" autocomplete="new-password"></div>' +
+      '<div class="field"><label>Role</label><select id="u_role"><option value="member">Member</option><option value="admin">Admin (can manage users)</option></select></div></div>' +
+      '<div class="btn-row"><button class="btn secondary" id="u_add">Add user</button></div>';
+    var pw = me ? '<h4 style="margin:16px 0 8px">Change your password</h4><div class="field-row"><div class="field"><label>Current</label><input type="password" id="pw_current" autocomplete="current-password"></div>' +
+      '<div class="field"><label>New (10+ characters)</label><input type="password" id="pw_new" autocomplete="new-password"></div></div><div class="btn-row"><button class="btn secondary" id="pw_save">Change password</button></div>' : "";
+    var render = function (users) {
+      $("#usersList").innerHTML = (users.length ? '<div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead><tbody>' + users.map(function (u) {
+        return "<tr><td>" + esc(u.email) + "</td><td>" + esc(u.name) + "</td><td>" + esc(u.role) + "</td><td>" + (u.last_login_at ? fmtTime(u.last_login_at) : "—") + "</td><td>" +
+          (isAdmin && (!me || me.id !== u.id) ? '<button class="btn ghost small" data-del="' + u.id + '">Remove</button>' : "") + "</td></tr>";
+      }).join("") + "</tbody></table></div>" : '<p class="muted">No accounts yet.</p>') + (isAdmin ? form : "") + pw;
+      if ($("#u_add")) $("#u_add").onclick = function () {
+        api("POST", "/users", { email: $("#u_email").value.trim(), name: $("#u_name").value.trim(), password: $("#u_password").value, role: $("#u_role").value })
+          .then(function () { toast("User added"); if (!authState.users_exist) { location.reload(); return; } loadUsers(); }).catch(fail);
+      };
+      $$("[data-del]").forEach(function (b) { b.onclick = function () {
+        if (!confirm("Remove this user? They'll be signed out.")) return;
+        api("DELETE", "/users/" + b.dataset.del).then(function () { toast("Removed"); loadUsers(); }).catch(fail);
+      }; });
+      if ($("#pw_save")) $("#pw_save").onclick = function () {
+        api("POST", "/auth/password", { current: $("#pw_current").value, new: $("#pw_new").value }).then(function () { toast("Password changed — sign in again"); setTimeout(function () { location.reload(); }, 1200); }).catch(fail);
+      };
+    };
+    if (!isAdmin) { render(me ? [me] : []); return; }
+    api("GET", "/users").then(render).catch(fail);
+  }
 
   /* ------------------------------------------------------------------ connections */
   var PRESETS = {
@@ -850,8 +885,43 @@
     },
   };
 
+  /* ------------------------------------------------------------------ sign-in */
+  var authState = null;
+  function showLogin() {
+    if ($("#login")) return;
+    $(".app").hidden = true;
+    var wrap = document.createElement("div");
+    wrap.id = "login";
+    wrap.className = "login";
+    wrap.innerHTML = '<div class="card"><div class="mark">Dr.Tracker</div><h3>Outreach — sign in</h3>' +
+      '<form id="loginForm"><div class="field"><label>Email</label><input type="email" id="l_email" autocomplete="username" required autofocus></div>' +
+      '<div class="field"><label>Password</label><input type="password" id="l_password" autocomplete="current-password" required></div>' +
+      '<p class="hint" id="l_error" style="color:var(--danger)"></p>' +
+      '<div class="btn-row"><button class="btn" type="submit">Sign in</button></div></form>' +
+      '<p class="hint">Forgot your password? An admin can reset it: <code>python -m backend.app.cli set-password --email you@…</code></p></div>';
+    document.body.appendChild(wrap);
+    $("#loginForm").onsubmit = function (e) {
+      e.preventDefault();
+      api("POST", "/auth/login", { email: $("#l_email").value.trim(), password: $("#l_password").value })
+        .then(function () { location.reload(); })
+        .catch(function (err) { $("#l_error").textContent = err.message; });
+    };
+  }
+  function signOut() { api("POST", "/auth/logout").then(function () { location.reload(); }).catch(fail); }
+  function authFoot() {
+    var a = authState || {};
+    var who = a.user ? '<div class="row">' + esc(a.user.email) + ' <a href="#" id="signOut" style="margin-left:auto">Sign out</a></div>' :
+      '<div class="row muted">No sign-in (local only)</div>';
+    var warn = (a.warnings || []).map(function (w) { return '<div class="row" style="color:var(--accent);font-size:12px;line-height:1.4">⚠ ' + esc(w) + "</div>"; }).join("");
+    return who + warn;
+  }
+
   /* ------------------------------------------------------------------ boot */
-  api("GET", "/meta").then(function (m) { meta = m; }).catch(function () {});
-  refreshSide();
-  route();
+  api("GET", "/auth/state").then(function (a) {
+    authState = a;
+    if (a.users_exist && !a.user) { showLogin(); return; }
+    api("GET", "/meta").then(function (m) { meta = m; }).catch(function () {});
+    refreshSide();
+    route();
+  }).catch(fail);
 })();
