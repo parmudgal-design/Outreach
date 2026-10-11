@@ -2,8 +2,9 @@
 
 Every tick it:
   1. polls the inbox (if configured and due) for replies, bounces and opt-outs,
-  2. drafts new contacts (when auto-draft is on) and due follow-ups (while running),
-  3. sends at most one approved message, if the campaign is running, the IST
+  2. drafts a suggested response to each new reply and alerts the team,
+  3. drafts new contacts (when auto-draft is on) and due follow-ups (while running),
+  4. sends at most one approved message, if the campaign is running, the IST
      window is open, today's cap isn't reached and the pacing delay has passed.
 
 Sending one message per tick, with a randomised gap, is deliberate: it keeps a
@@ -16,10 +17,13 @@ import threading
 import time
 
 from . import config, db, settings_store
-from .services import drafting, inbox, outreach, schedule
+from .services import alerts, drafting, inbox, outreach, schedule
 
 log = logging.getLogger("outreach.worker")
 DRAFTS_PER_TICK = 3
+# A reply's alert waits for its suggested response, but never longer than this.
+ALERT_WAIT_SECONDS = 30 * 60
+INBOX_ALERT_GAP = 6 * 3600
 
 # Serialises ticks: the API's "run now" and the timer loop never overlap.
 _tick_lock = threading.Lock()
@@ -42,6 +46,7 @@ def status() -> dict:
         sent_today = outreach.sent_since(conn, schedule.start_of_ist_day())
         approved = conn.execute("SELECT COUNT(*) FROM messages WHERE status = 'approved'").fetchone()[0]
         drafts = conn.execute("SELECT COUNT(*) FROM messages WHERE status = 'draft'").fetchone()[0]
+        replies = conn.execute("SELECT COUNT(*) FROM messages WHERE status = 'draft' AND kind = 'reply'").fetchone()[0]
         to_draft = conn.execute(
             "SELECT COUNT(*) FROM contacts c WHERE c.status = 'new' AND c.draft_attempts < ? AND NOT EXISTS "
             "(SELECT 1 FROM messages m WHERE m.contact_id = c.id AND m.status IN ('draft','approved','sending'))",
@@ -58,6 +63,7 @@ def status() -> dict:
         "daily_cap": camp["daily_cap"],
         "approved_waiting": approved,
         "drafts_to_review": drafts,
+        "replies_to_review": replies,
         "contacts_to_draft": to_draft,
         "next_send_at": rt.get("next_send_at"),
         "last_tick": rt.get("last_tick"),
@@ -88,6 +94,10 @@ def poll_inbox(force: bool = False) -> dict:
         with db.connect() as conn:
             _set_runtime(conn, last_inbox_poll=time.time(), last_inbox_error=str(err))
             db.log_event("inbox", str(err), level="error", conn=conn)
+        alerts.send("Outreach: can't read the inbox",
+                    f"The outreach app couldn't check the inbox, so replies, bounces and unsubscribes aren't being "
+                    f"picked up until this is fixed (Connections → Reading replies).\n\nError: {err}",
+                    throttle_key="inbox_error", min_gap=INBOX_ALERT_GAP)
         return {"error": str(err)}
     last_key = rt.get("last_uid_key")
     for uid_key, raw in items:
@@ -101,6 +111,50 @@ def poll_inbox(force: bool = False) -> dict:
         if matched:
             db.log_event("inbox", "Inbox: " + ", ".join(f"{v} {k.replace('_', '-')}" for k, v in matched.items()), conn=conn)
     return counts
+
+
+def reply_stage(drafter=None, now: float | None = None) -> dict:
+    """Suggested responses to new replies, then one alert per reply."""
+    with db.connect() as conn:
+        ids = [r["id"] for r in conn.execute(
+            "SELECT i.id FROM inbound i JOIN contacts c ON c.id = i.contact_id "
+            "WHERE i.kind = 'reply' AND i.handled_at IS NULL AND i.reply_attempts < ? AND i.body != '' "
+            "AND c.last_sent_at IS NOT NULL AND c.status NOT IN ('unsubscribed', 'bounced') "
+            "ORDER BY i.received_at LIMIT ?",
+            (outreach.MAX_REPLY_ATTEMPTS, DRAFTS_PER_TICK),
+        )]
+    drafted = 0
+    for inbound_id in ids:
+        try:
+            if outreach.draft_reply(inbound_id, drafter=drafter):
+                drafted += 1
+        except drafting.DraftError:
+            break  # same back-off as draft_stage
+        except outreach.OutreachError:
+            continue
+    return {"drafted": drafted, "alerted": alert_stage(now)}
+
+
+def alert_stage(now: float | None = None) -> int:
+    now = now or time.time()
+    with db.connect() as conn:
+        due = db.rows(conn.execute(
+            "SELECT i.* FROM inbound i WHERE i.kind = 'reply' AND i.alerted_at IS NULL AND i.contact_id IS NOT NULL "
+            "AND i.body != '' AND (i.handled_at IS NOT NULL OR i.reply_attempts >= ? OR i.received_at < ?) "
+            "ORDER BY i.received_at LIMIT 20",
+            (outreach.MAX_REPLY_ATTEMPTS, now - ALERT_WAIT_SECONDS),
+        ))
+    sent = 0
+    for theirs in due:
+        with db.connect() as conn:
+            contact = outreach.get_contact(conn, theirs["contact_id"])
+            has_draft = conn.execute("SELECT 1 FROM messages WHERE inbound_id = ? AND status IN ('draft', 'approved')",
+                                     (theirs["id"],)).fetchone() is not None
+            # Marked first: a failing mail server must not turn one reply into an alert every tick.
+            conn.execute("UPDATE inbound SET alerted_at = ? WHERE id = ?", (now, theirs["id"]))
+        if alerts.reply_alert(contact, theirs, has_draft, outreach.INTENT_LABEL.get(theirs["intent"])):
+            sent += 1
+    return sent
 
 
 def draft_stage(drafter=None) -> int:
@@ -153,8 +207,8 @@ def send_stage(transport=None, now: float | None = None) -> dict:
             return {"skipped": "pacing"}
         row = conn.execute(
             "SELECT m.id FROM messages m JOIN contacts c ON c.id = m.contact_id "
-            "WHERE m.status = 'approved' AND c.status NOT IN ('declined','unsubscribed','bounced') "
-            "ORDER BY CASE m.kind WHEN 'followup' THEN 0 ELSE 1 END, m.created_at LIMIT 1"
+            "WHERE m.status = 'approved' AND c.status NOT IN ('unsubscribed','bounced') AND (c.status != 'declined' OR m.kind = 'reply') "
+            "ORDER BY CASE m.kind WHEN 'reply' THEN 0 WHEN 'followup' THEN 1 ELSE 2 END, m.created_at LIMIT 1"
         ).fetchone()
         if not row:
             return {"skipped": "nothing approved"}
@@ -173,7 +227,8 @@ def tick(drafter=None, transport=None) -> dict:
     if not _tick_lock.acquire(blocking=False):
         return {"skipped": "tick already running"}
     try:
-        result = {"inbox": poll_inbox(), "drafted": draft_stage(drafter), "send": send_stage(transport)}
+        result = {"inbox": poll_inbox(), "replies": reply_stage(drafter), "drafted": draft_stage(drafter),
+                  "send": send_stage(transport)}
         with db.connect() as conn:
             _set_runtime(conn, last_tick=time.time())
         return result

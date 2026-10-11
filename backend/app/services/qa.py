@@ -44,6 +44,8 @@ PRICING_RE = re.compile(
     re.I,
 )
 # Paying for, or being paid for, patient referrals: never in an email to a doctor or clinic (NMC 2023).
+# Naming the topic without an amount or offer ("happy to go through pricing on the call"): fine in a reply to someone who asked.
+GENERIC_PRICE_RE = re.compile(r"(prices?|priced|pricing|(listing |joining |sign[- ]?up )?fees?|charges?)", re.I)
 REFERRAL_RE = re.compile(
     r"\b(commissions?|referral( fee| bonus| payment)?s?|revenue[- ]shar(e|ing)|per[- ](booking|appointment|patient|lead|referral)|"
     r"(share|cut) of (the |your )?(fees?|consultations?|bookings?)|kickbacks?|incentives?|pay(ment)? for (patients|bookings|leads))\b",
@@ -73,14 +75,18 @@ def _without(text: str, phrase: str) -> str:
     return re.sub(r"\s+".join(re.escape(w) for w in words), " ", text, flags=re.I)
 
 
-def marketplace_checks(text: str, contact: dict, market: dict, add) -> None:
+def marketplace_checks(text: str, contact: dict, market: dict, add, kind: str = "initial") -> None:
     if m := MONITORING_RE.search(text):
         add("warn", f"Uses the old patient-monitoring pitch (\"{m.group(0)}\"). Marketplace emails are about being found, not about monitoring patients.")
     allowed = (market.get("trial_text") or "").strip() if market.get("mention_trial") else ""
     if marketplace.is_doctor(contact) and (m := REFERRAL_RE.search(text)):
         add("error", f"Mentions \"{m.group(0)}\" to a doctor or clinic. Paying for, or being paid for, patient "
                      "referrals is not allowed (NMC 2023). Take it out.")
-    if m := PRICING_RE.search(_without(text, allowed)):
+    hits = [h.group(0) for h in PRICING_RE.finditer(_without(text, allowed))]
+    if kind == "reply" and hits and all(GENERIC_PRICE_RE.fullmatch(h.strip()) for h in hits):
+        add("warn", f"Talks about pricing (\"{hits[0]}\"). Fine for saying you'll cover it on the call; don't quote any "
+                    "amount, fee or offer until legal has signed off.")
+    elif m := PRICING_RE.search(_without(text, allowed)):
         if allowed:
             add("error", f"Mentions pricing (\"{m.group(0)}\"). With the trial setting on, the only offer allowed is the trial text from Setup.")
         else:
@@ -124,9 +130,9 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
         add("warn", f"Doesn't mention {expected[0]} by name — check the greeting.")
 
     words = len(body.split())
-    limit = 150 if kind == "followup" else (200 if is_market else 240)
+    limit = {"followup": 150, "reply": 180}.get(kind) or (200 if is_market else 240)
     if words > limit:
-        add("warn", f"{words} words — long for a {'follow-up' if kind == 'followup' else 'cold email'}.")
+        add("warn", f"{words} words — long for a {({'followup': 'follow-up', 'reply': 'reply'}).get(kind, 'cold email')}.")
     if kind == "initial" and len(subject.split()) > 12:
         add("warn", "Subject is long — under ~9 words usually does better.")
 
@@ -147,7 +153,7 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
     if kind == "initial" and FAKE_THREAD_RE.search(subject):
         add("error", "Subject starts with Re:/Fwd: on a first email — deceptive under the IT Act and CCPA guidelines.")
     if is_market:
-        marketplace_checks(text, contact, market, add)
+        marketplace_checks(text, contact, market, add, kind)
     if (not is_market or marketplace.is_doctor(contact)) and (m := INCENTIVE_RE.search(_without(text, (market.get("trial_text") or "") if market.get("mention_trial") else ""))):
         add("error", f"Offers an incentive (\"{m.group(0)}\") — gifts, fees or perks to doctors breach NMC 2023 / UCPMP 2024.")
     if m := CURE_RE.search(text):

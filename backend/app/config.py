@@ -27,6 +27,9 @@ SESSION_DAYS = int(os.environ.get("OUTREACH_SESSION_DAYS", "14"))
 def is_local_bind() -> bool:
     return HOST in LOCAL_HOSTS
 
+# The address people open the app at (e.g. https://outreach.dr-tracker.com), used for links in alert emails.
+PUBLIC_URL = os.environ.get("OUTREACH_PUBLIC_URL", "").strip().rstrip("/")
+
 # Seconds between background worker ticks.
 WORKER_TICK_SECONDS = float(os.environ.get("OUTREACH_TICK_SECONDS", "15"))
 # Set to "0" to run the API without the background worker (tests do this).

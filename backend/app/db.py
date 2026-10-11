@@ -42,7 +42,7 @@ CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);
 CREATE TABLE IF NOT EXISTS messages (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   contact_id   INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
-  kind         TEXT NOT NULL DEFAULT 'initial',   -- initial | followup
+  kind         TEXT NOT NULL DEFAULT 'initial',   -- initial | followup | reply
   subject      TEXT NOT NULL DEFAULT '',
   body         TEXT NOT NULL DEFAULT '',
   status       TEXT NOT NULL DEFAULT 'draft',     -- draft | approved | sending | sent | failed | discarded
@@ -157,6 +157,19 @@ MIGRATIONS = [
     ("events", "actor", "TEXT"),
     ("messages", "approved_by", "TEXT"),
     ("messages", "sent_by", "TEXT"),
+    # Website research (services/research.py): an excerpt of the partner's own site.
+    ("contacts", "site_text", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "site_checked_at", "REAL"),
+    ("contacts", "site_error", "TEXT"),
+    # Reply handling: the reply's text, what it's asking, and the suggested response.
+    ("inbound", "body", "TEXT NOT NULL DEFAULT ''"),
+    ("inbound", "message_id", "TEXT"),                          # their Message-ID, so our response threads
+    ("inbound", "intent", "TEXT"),                              # interested | question | not_now | not_interested | wrong_person | other
+    ("inbound", "intent_note", "TEXT"),                         # one-line summary for the founder
+    ("inbound", "handled_at", "REAL"),                          # a response was drafted (or none is coming)
+    ("inbound", "reply_attempts", "INTEGER NOT NULL DEFAULT 0"),
+    ("inbound", "alerted_at", "REAL"),
+    ("messages", "inbound_id", "INTEGER"),                      # the reply a 'reply' message answers
 ]
 
 

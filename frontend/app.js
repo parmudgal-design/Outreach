@@ -77,6 +77,10 @@
   function categoryOptions(type, selected) {
     return '<option value="">— not set —</option>' + ((meta.categories || {})[type] || []).map(function (x) { return '<option value="' + x.key + '"' + (x.key === selected ? " selected" : "") + ">" + esc(x.label) + "</option>"; }).join("");
   }
+  var INTENT_LABEL = { interested: "Interested", question: "Has a question", not_now: "Not now", not_interested: "Not interested", wrong_person: "Wrong person", other: "Other" };
+  var INTENT_CLASS = { interested: "adopted", question: "info", not_now: "warn", not_interested: "declined", wrong_person: "warn", other: "" };
+  function intentBadge(i) { return i ? badge(INTENT_CLASS[i] || "", INTENT_LABEL[i] || i) : ""; }
+  function kindLabel(k) { return k === "followup" ? "Follow-up" : k === "reply" ? "Response to their reply" : "Email"; }
   var MSG_LABEL = { draft: "Needs review", approved: "Approved — queued", sending: "Sending", sent: "Sent", failed: "Failed", discarded: "Discarded" };
   function badge(cls, text) { return '<span class="badge ' + esc(cls) + '">' + esc(text) + "</span>"; }
   function statusBadge(s) { return badge(s, STATUS_LABEL[s] || s); }
@@ -159,7 +163,7 @@
           "</div>" +
           '<div class="grid two" style="margin-top:16px">' +
             '<div class="card"><h3>Recent replies</h3>' + (d.recent_replies.length ? '<ul class="timeline" style="margin-top:12px">' + d.recent_replies.map(function (i) {
-              return "<li>" + badge(i.kind, i.kind === "reply" ? "Reply" : "Unsubscribed") + " <strong>" + esc(i.contact_name || i.from_addr) + '</strong> <span class="muted">' + ago(i.received_at) + "</span>" + (i.snippet ? "<pre>" + esc(i.snippet) + "</pre>" : "") + "</li>";
+              return "<li>" + badge(i.kind, i.kind === "reply" ? "Reply" : "Unsubscribed") + " " + intentBadge(i.intent) + " <strong>" + esc(i.contact_name || i.from_addr) + '</strong> <span class="muted">' + ago(i.received_at) + "</span>" + (i.snippet ? "<pre>" + esc(i.snippet) + "</pre>" : "") + "</li>";
             }).join("") + "</ul>" : '<p class="sub">No replies yet. Once your inbox is connected, replies are picked up automatically.</p>') + "</div>" +
             '<div class="card"><h3>Sends, last 14 days</h3>' + (d.daily_sends.length ? '<div style="display:flex;gap:6px;align-items:flex-end;height:120px;margin-top:14px">' + d.daily_sends.map(function (x) {
               return '<div title="' + esc(x.day) + ": " + x.n + '" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px"><span class="muted">' + x.n + '</span><div style="width:100%;background:var(--primary);border-radius:4px 4px 0 0;height:' + Math.max(4, Math.round(90 * x.n / maxDaily)) + 'px"></div><span class="muted" style="font-size:11px">' + esc(x.day.slice(5)) + "</span></div>";
@@ -302,10 +306,10 @@
         meta.specialties.map(function (s) { return '<option value="' + s.key + '"' + (c.specialty_source === "manual" && c.specialty_key === s.key ? " selected" : "") + ">" + esc(s.label) + "</option>"; }).join("");
       var timeline = [];
       c.messages.forEach(function (m) {
-        timeline.push({ ts: m.sent_at || m.created_at, html: badge(m.status, MSG_LABEL[m.status] || m.status) + " " + (m.kind === "followup" ? "Follow-up" : "Email") + ' <span class="muted">' + fmtTime(m.sent_at || m.created_at) + " · " + esc(m.drafted_by) + (m.transport === "dry_run" ? " · dry run" : "") + "</span>" + (m.error ? '<div style="color:var(--danger);font-size:13px">' + esc(m.error) + "</div>" : "") + "<pre><strong>" + esc(m.subject) + "</strong>\n\n" + esc(m.body) + "</pre>" });
+        timeline.push({ ts: m.sent_at || m.created_at, html: badge(m.status, MSG_LABEL[m.status] || m.status) + " " + kindLabel(m.kind) + ' <span class="muted">' + fmtTime(m.sent_at || m.created_at) + " · " + esc(m.drafted_by) + (m.transport === "dry_run" ? " · dry run" : "") + "</span>" + (m.error ? '<div style="color:var(--danger);font-size:13px">' + esc(m.error) + "</div>" : "") + "<pre><strong>" + esc(m.subject) + "</strong>\n\n" + esc(m.body) + "</pre>" });
       });
       c.inbound.forEach(function (i) {
-        timeline.push({ ts: i.received_at, html: badge(i.kind, i.kind.replace("_", " ")) + ' <span class="muted">' + fmtTime(i.received_at) + " · " + esc(i.from_addr) + "</span>" + (i.snippet ? "<pre>" + esc(i.snippet) + "</pre>" : "") });
+        timeline.push({ ts: i.received_at, html: badge(i.kind, i.kind.replace("_", " ")) + " " + intentBadge(i.intent) + ' <span class="muted">' + fmtTime(i.received_at) + " · " + esc(i.from_addr) + "</span>" + (i.intent_note ? '<div class="muted" style="font-size:13px">' + esc(i.intent_note) + "</div>" : "") + ((i.body || i.snippet) ? "<pre>" + esc(i.body || i.snippet) + "</pre>" : "") });
       });
       timeline.sort(function (a, b) { return b.ts - a.ts; });
 
@@ -317,6 +321,7 @@
         '<div class="card" style="padding:16px"><div class="btn-row">' +
           '<button class="btn small" id="draftBtn">' + (c.pending_message ? "Rewrite draft" : "Write draft") + "</button>" +
           (c.status === "sent" ? '<button class="btn secondary small" id="fuBtn">Write follow-up</button>' : "") +
+          (c.inbound.some(function (i) { return i.kind === "reply"; }) ? '<button class="btn secondary small" id="replyBtn">Suggest a response</button>' : "") +
           (c.pending_message ? '<a class="btn secondary small" href="#/review" id="toReview">Open in Review</a>' : "") +
           '<span class="spacer"></span><label style="margin:0" for="statusSel">Status</label><select id="statusSel" style="width:auto">' +
           Object.keys(STATUS_LABEL).map(function (s) { return '<option value="' + s + '"' + (c.status === s ? " selected" : "") + ">" + STATUS_LABEL[s] + "</option>"; }).join("") +
@@ -325,6 +330,10 @@
           (c.type === "doctor" ? '<div class="field"><label>Specialty used for the email</label><select id="fSpecKey">' + specOpts + '</select><p class="hint">' +
             (c.specialty_label ? "Detected <strong>" + esc(c.specialty_label) + "</strong>" + (c.specialty_source ? " from the " + esc(c.specialty_source) : "") + ". " : "Not detected yet — pick one so the email opens with a scene from their specialty. ") +
             "The opening scene and subject are chosen for this specialty.</p></div>" : "") +
+          (isMarket(c.type) ? '<div class="field"><label>From their website</label>' +
+            (c.site_text ? "<pre class=\"site-text\">" + esc(c.site_text) + "</pre>" : '<p class="hint" style="margin-top:0">' + (c.site_error ? "Not read: " + esc(c.site_error) + "." : "Read automatically before Claude writes the first email.") + "</p>") +
+            (c.site_checked_at ? '<p class="hint">Checked ' + ago(c.site_checked_at) + ". Claude uses this only to be specific about what they do; it never repeats their claims.</p>" : "") +
+            '<button class="btn ghost small" id="siteBtn">' + (c.site_checked_at ? "Read website again" : "Read website now") + "</button></div>" : "") +
           '<div class="btn-row"><button class="btn secondary small" id="saveC">Save changes</button><span class="spacer"></span><button class="btn danger small" id="delC">Delete contact</button></div></div>' +
         '<h3 style="margin-top:22px;font-size:16px">History</h3>' +
         (timeline.length ? '<ul class="timeline">' + timeline.map(function (t) { return "<li>" + t.html + "</li>"; }).join("") + "</ul>" : '<p class="muted">Nothing yet.</p>'),
@@ -350,6 +359,11 @@
       };
       $("#draftBtn").onclick = function () { draftFor(id, "initial", this); };
       if ($("#fuBtn")) $("#fuBtn").onclick = function () { draftFor(id, "followup", this); };
+      if ($("#replyBtn")) $("#replyBtn").onclick = function () { draftFor(id, "reply", this); };
+      if ($("#siteBtn")) $("#siteBtn").onclick = function () {
+        var b = this; b.disabled = true; b.textContent = "Reading…";
+        api("POST", "/contacts/" + id + "/research").then(function (r) { toast(r.site_error ? "Couldn't read it: " + r.site_error : "Website read"); openContact(id); }).catch(function (e) { fail(e); b.disabled = false; });
+      };
     }).catch(fail);
   }
 
@@ -505,11 +519,13 @@
     var hasErr = m.qa.some(function (i) { return i.level === "error"; });
     var by = m.drafted_by.indexOf("claude") === 0 ? badge("claude", "Written by Claude") : m.drafted_by.indexOf("template") === 0 ? badge("", "Template") : badge("", "Written by hand");
     return '<div class="review-card" id="m' + m.id + '">' +
-      '<div class="head"><div><strong style="font-size:15px">' + esc(m.contact_name) + "</strong> " + badge("", TYPE_LABEL[m.contact_type]) + " " + (m.kind === "followup" ? badge("info", "Follow-up") : "") + " " + by +
+      '<div class="head"><div><strong style="font-size:15px">' + esc(m.contact_name) + "</strong> " + badge("", TYPE_LABEL[m.contact_type]) + " " + (m.kind === "followup" ? badge("info", "Follow-up") : m.kind === "reply" ? badge("info", "Response to their reply") + " " + intentBadge(m.intent) : "") + " " + by +
         '<br><span class="muted">' + esc(m.contact_email) + (m.specialty ? " · " + esc(m.specialty) : "") + (m.clinic ? " · " + esc(m.clinic) : "") + (m.city ? " · " + esc(m.city) : "") + "</span></div>" +
         badge(m.status, MSG_LABEL[m.status]) + "</div>" +
       (m.error ? '<div class="notice warn">' + esc(m.error) + "</div>" : "") +
-      '<div class="field"><label>Subject</label><textarea class="subject" rows="1" data-k="subject"' + (m.kind === "followup" ? " disabled" : "") + ">" + esc(m.subject) + "</textarea>" + (m.kind === "followup" ? '<p class="hint">Follow-ups are sent as a reply in the same thread.</p>' : "") + "</div>" +
+      (m.kind === "reply" ? '<div class="field"><label>They wrote' + (m.their_received_at ? ' <span class="muted">· ' + fmtTime(m.their_received_at) + "</span>" : "") + "</label>" +
+        (m.intent_note ? '<p class="hint" style="margin-top:0">' + esc(m.intent_note) + "</p>" : "") + "<pre class=\"their-reply\">" + esc(m.their_text || "") + "</pre></div>" : "") +
+      '<div class="field"><label>Subject</label><textarea class="subject" rows="1" data-k="subject"' + (m.kind !== "initial" ? " disabled" : "") + ">" + esc(m.subject) + "</textarea>" + (m.kind !== "initial" ? '<p class="hint">Sent as a reply in the same thread.</p>' : "") + "</div>" +
       '<div class="field"><label>Body</label><textarea class="body" data-k="body">' + esc(m.body) + '</textarea><p class="hint">Sender identity, your address and an opt-out line are added below this automatically.</p></div>' +
       '<div class="qa">' + qaHtml(m.qa) + "</div>" +
       '<div class="btn-row">' +
@@ -584,7 +600,8 @@
             "<li>" + (camp.require_approval ? "Drafts wait in <a href=\"#/review\">Review</a> until you approve them." : "Drafts that pass the pre-send check are approved automatically.") + "</li>" +
             "<li>Approved emails go out one at a time, " + camp.min_delay_seconds + "–" + (camp.min_delay_seconds + camp.jitter_seconds) + " s apart, at most " + camp.daily_cap + " a day" + (camp.ist_window ? ", " + camp.window_start_hour + ":00–" + camp.window_end_hour + ":00 IST" : "") + ".</li>" +
             "<li>" + (camp.followups_enabled ? "No reply after " + camp.followup_after_days + " days → up to " + camp.max_followups + " short follow-up(s) in the same thread." : "Follow-ups are off.") + "</li>" +
-            "<li>Replies, bounces and “unsubscribe” are picked up from your inbox every " + camp.inbox_poll_minutes + " min and stop further emails.</li></ol></div></div>" +
+            "<li>Replies, bounces and “unsubscribe” are picked up from your inbox every " + camp.inbox_poll_minutes + " min and stop further emails.</li>" +
+            "<li>Each reply is sorted (interested, question, not now…), a suggested response waits in <a href=\"#/review\">Review</a> for your approval, and you get an alert email (set under <a href=\"#/connections\">Connections</a>).</li></ol></div></div>" +
           '<div class="card" style="margin-top:16px"><h3>Settings</h3><p class="sub">Keep volume low from a single inbox — 10–30 a day is a safe range for a personal Gmail account. Real scale needs a proper sending domain (SPF/DKIM/DMARC).</p>' +
             '<div class="field"><label class="check"><input type="checkbox" id="require_approval"' + (camp.require_approval ? " checked" : "") + "> Require my approval for every email <span class=\"muted\">(recommended, at least at first)</span></label></div>" +
             '<div class="field"><label class="check"><input type="checkbox" id="auto_draft"' + (camp.auto_draft ? " checked" : "") + "> Draft new contacts automatically</label></div>" +
@@ -816,6 +833,8 @@
             '<div class="field"><label>Anthropic API key</label>' + secretInput("ai_key", ai.anthropic_api_key_set, ai.anthropic_api_key_hint, "sk-ant-…") + "</div>" +
             '<div class="field-row"><div class="field"><label>Model</label><select id="ai_model">' + [["claude-opus-5-5", "Claude Opus 5.5 (best writing)"], ["claude-sonnet-5-5", "Claude Sonnet 5.5 (faster, cheaper)"], ["claude-haiku-4-5", "Claude Haiku 4.5 (cheapest)"]].map(function (o) { return '<option value="' + o[0] + '"' + (ai.model === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></div>" +
             '<div class="field"><label>Effort</label><select id="ai_effort">' + [["low", "Low"], ["medium", "Medium (recommended)"], ["high", "High"]].map(function (o) { return '<option value="' + o[0] + '"' + (ai.effort === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + '</select><p class="hint">Haiku ignores this setting.</p></div></div>' +
+            '<div class="field"><label class="check"><input type="checkbox" id="ai_research"' + (ai.website_research ? " checked" : "") + "> Read each brand's or professional's website before writing their first email</label><p class=\"hint\">Uses their Website column, or their email domain. Claude uses it only to be specific about what they do.</p></div>" +
+            '<div class="field"><label class="check"><input type="checkbox" id="ai_replies"' + (ai.reply_drafts ? " checked" : "") + "> When someone replies, sort the reply and draft a response for my approval</label></div>" +
             '<div class="btn-row"><button class="btn" id="saveAi">Save</button><button class="btn secondary" id="testAi">Test</button></div><div class="test-result" id="aiResult"></div></div>' +
 
           '<div class="card"><h3>Sending email</h3><p class="sub">Uses your own mailbox over SMTP. For Gmail or Google Workspace, turn on 2-Step Verification and create an <strong>App Password</strong> (Google Account → Security → App passwords) — paste that here, not your normal password. For real volume, point this at a transactional provider\'s SMTP (Amazon SES, Postmark, Brevo…) on your own domain with SPF, DKIM and DMARC set up.</p>' +
@@ -839,6 +858,7 @@
             '<div class="field"><label>Folder</label><input type="text" id="imap_folder" value="' + esc(e.imap_folder) + '"></div></div>' +
             '<div class="field-row"><div class="field"><label>Username <span class="muted">(blank = same as SMTP)</span></label><input type="text" id="imap_username" value="' + esc(e.imap_username) + '"></div>' +
             '<div class="field"><label>Password <span class="muted">(blank = same as SMTP)</span></label>' + secretInput("imap_password", e.imap_password_set, e.imap_password_hint, "") + "</div></div>" +
+            '<div class="field"><label>Email me when someone replies</label><input type="email" id="alert_to" value="' + esc(e.alert_to || "") + '" placeholder="founder@dr-tracker.com"><p class="hint">Use a person\'s own inbox, not the sending mailbox. You also get an alert if the inbox stops being readable. Blank = no alerts.</p></div>' +
             '<div class="btn-row"><button class="btn" id="saveImap">Save</button><button class="btn secondary" id="testImap">Test</button></div><div class="test-result" id="imapResult"></div></div>';
 
         function result(id, r) { var el2 = $("#" + id); el2.className = "test-result " + (r.ok ? "ok" : "fail"); el2.textContent = (r.ok ? "✓ " : "✗ ") + r.message; }
@@ -852,7 +872,7 @@
           };
         });
         $("#saveAi").onclick = function () {
-          api("PUT", "/settings/ai", { anthropic_api_key: $("#ai_key").value.trim(), model: $("#ai_model").value, effort: $("#ai_effort").value }).then(function () { toast("Saved"); route(); refreshSide(); }).catch(fail);
+          api("PUT", "/settings/ai", { anthropic_api_key: $("#ai_key").value.trim(), model: $("#ai_model").value, effort: $("#ai_effort").value, website_research: $("#ai_research").checked, reply_drafts: $("#ai_replies").checked }).then(function () { toast("Saved"); route(); refreshSide(); }).catch(fail);
         };
         $("#testAi").onclick = function () { testing("aiResult"); api("POST", "/settings/test/ai").then(function (r) { result("aiResult", r); }).catch(fail); };
         $$("[data-preset]").forEach(function (b) {
@@ -882,7 +902,7 @@
           testing("smtpResult");
           api("PUT", "/settings/email", mailPatch()).then(function () { return api("POST", "/settings/test/send", { to: to }); }).then(function (r) { result("smtpResult", r); }).catch(fail);
         };
-        function imapPatch() { return { imap_enabled: $("#imap_enabled").checked, imap_host: $("#imap_host").value.trim(), imap_port: +$("#imap_port").value, imap_folder: $("#imap_folder").value.trim() || "INBOX", imap_username: $("#imap_username").value.trim(), imap_password: $("#imap_password").value }; }
+        function imapPatch() { return { imap_enabled: $("#imap_enabled").checked, imap_host: $("#imap_host").value.trim(), imap_port: +$("#imap_port").value, imap_folder: $("#imap_folder").value.trim() || "INBOX", imap_username: $("#imap_username").value.trim(), imap_password: $("#imap_password").value, alert_to: $("#alert_to").value.trim() }; }
         $("#saveImap").onclick = function () { api("PUT", "/settings/email", imapPatch()).then(function () { toast("Saved"); route(); }).catch(fail); };
         $("#testImap").onclick = function () { testing("imapResult"); api("PUT", "/settings/email", imapPatch()).then(function () { return api("POST", "/settings/test/imap"); }).then(function (r) { result("imapResult", r); }).catch(fail); };
       });

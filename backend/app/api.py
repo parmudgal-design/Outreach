@@ -312,6 +312,9 @@ def patch_contact(contact_id: int, body: ContactPatch):
         existing = outreach.get_contact(conn, contact_id)
         if "category" in fields:
             fields["category"] = marketplace.normalise_category(fields["category"], fields.get("type") or existing["type"])
+        if any(f in fields and fields[f] != existing[f] for f in ("website", "email")):
+            # A different site: read it afresh before the next draft.
+            fields.update(site_text="", site_checked_at=None, site_error=None)
         if fields:
             fields["updated_at"] = time.time()
             conn.execute(f"UPDATE contacts SET {', '.join(f'{k} = ?' for k in fields)} WHERE id = ?", (*fields.values(), contact_id))
@@ -349,12 +352,31 @@ def delete_contact(contact_id: int):
 @router.post("/contacts/{contact_id}/draft")
 def draft_contact(contact_id: int, kind: str = "initial"):
     try:
-        m = outreach.draft(contact_id, kind)
+        if kind == "reply":
+            with db.connect() as conn:
+                theirs = outreach.latest_reply(conn, contact_id)
+            if not theirs:
+                raise outreach.OutreachError("They haven't replied yet.")
+            m = outreach.draft_reply(theirs["id"])
+            if m is None:
+                raise outreach.OutreachError("Suggested responses need an Anthropic API key (Connections) with reply drafting turned on.")
+        else:
+            m = outreach.draft(contact_id, kind)
     except (drafting.DraftError, outreach.OutreachError) as e:
         _err(e)
     with db.connect() as conn:
         m["qa"] = outreach.check_message(conn, m)
     return m
+
+
+@router.post("/contacts/{contact_id}/research")
+def research_contact(contact_id: int):
+    try:
+        outreach.research_contact(contact_id, force=True)
+    except outreach.OutreachError as e:
+        _err(e, 404)
+    with db.connect() as conn:
+        return _contact_view(conn, outreach.get_contact(conn, contact_id))
 
 
 class ManualDraft(BaseModel):
@@ -491,14 +513,14 @@ def import_commit(body: ImportCommit):
 def import_template():
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["name", "email", "type", "specialty", "clinic", "product", "city", "notes"])
-    w.writerow(["Dr. Aditi Sharma", "aditi.sharma@example.in", "doctor", "MD, DM (Cardiology)", "Sharma Heart Clinic", "", "Pune", "Runs a busy OPD; follow-up no-shows are a pain point"])
-    w.writerow(["Dr. Rahul Nair", "rahul.nair@example.in", "doctor", "", "Kochi Bone & Joint Centre", "", "Kochi", "Mostly knee replacements"])
-    w.writerow(["Dr. Rakesh Malhotra", "ms@example-hospital.in", "hospital", "Medical Superintendent", "Navjeevan Hospital", "", "Delhi", "Expanding to a second campus"])
-    w.writerow(["Ritu Varma", "ritu@example-diagnostics.in", "company", "Head of Partnerships", "Sanjeevani Diagnostics", "", "Mumbai", "Expanding to Tier 2 cities"])
-    w.writerow(["Neha Kapoor", "neha@example-devices.in", "partner", "Head of BD", "VitalSense", "VitalSense home BP monitor", "Bengaluru", "Bluetooth BP cuff with its own app"])
-    w.writerow(["Crunchwell Foods", "hello@crunchwell.example", "brand", "Wellness food", "", "Millet snack bars with no added sugar", "Mumbai", "Partner ID B-FD-T2-MUM-01"])
-    w.writerow(["Dt. Meenal Joshi (Green Bowl Clinic)", "meenal@greenbowl.example", "professional", "Nutritionist / dietitian", "", "Diabetes-friendly meal planning and weekly check-ins", "Hyderabad", "Partner ID P-NT-T3-HYD-01"])
+    w.writerow(["name", "email", "type", "specialty", "clinic", "product", "city", "notes", "website"])
+    w.writerow(["Dr. Aditi Sharma", "aditi.sharma@example.in", "doctor", "MD, DM (Cardiology)", "Sharma Heart Clinic", "", "Pune", "Runs a busy OPD; follow-up no-shows are a pain point", ""])
+    w.writerow(["Dr. Rahul Nair", "rahul.nair@example.in", "doctor", "", "Kochi Bone & Joint Centre", "", "Kochi", "Mostly knee replacements", ""])
+    w.writerow(["Dr. Rakesh Malhotra", "ms@example-hospital.in", "hospital", "Medical Superintendent", "Navjeevan Hospital", "", "Delhi", "Expanding to a second campus", ""])
+    w.writerow(["Ritu Varma", "ritu@example-diagnostics.in", "company", "Head of Partnerships", "Sanjeevani Diagnostics", "", "Mumbai", "Expanding to Tier 2 cities", ""])
+    w.writerow(["Neha Kapoor", "neha@example-devices.in", "partner", "Head of BD", "VitalSense", "VitalSense home BP monitor", "Bengaluru", "Bluetooth BP cuff with its own app", "vitalsense.example"])
+    w.writerow(["Crunchwell Foods", "hello@crunchwell.example", "brand", "Wellness food", "", "Millet snack bars with no added sugar", "Mumbai", "Partner ID B-FD-T2-MUM-01", "crunchwell.example"])
+    w.writerow(["Dt. Meenal Joshi (Green Bowl Clinic)", "meenal@greenbowl.example", "professional", "Nutritionist / dietitian", "", "Diabetes-friendly meal planning and weekly check-ins", "Hyderabad", "Partner ID P-NT-T3-HYD-01", "greenbowl.example"])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=contacts-template.csv"})
 
@@ -509,9 +531,12 @@ def import_template():
 def review_queue():
     with db.connect() as conn:
         items = db.rows(conn.execute(
-            "SELECT m.*, c.name AS contact_name, c.email AS contact_email, c.type AS contact_type, c.specialty, c.clinic, c.city "
-            "FROM messages m JOIN contacts c ON c.id = m.contact_id WHERE m.status IN ('draft', 'approved', 'failed') "
-            "ORDER BY CASE m.status WHEN 'draft' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, m.created_at"
+            "SELECT m.*, c.name AS contact_name, c.email AS contact_email, c.type AS contact_type, c.specialty, c.clinic, c.city, "
+            "i.body AS their_text, i.subject AS their_subject, i.intent, i.intent_note, i.received_at AS their_received_at "
+            "FROM messages m JOIN contacts c ON c.id = m.contact_id LEFT JOIN inbound i ON i.id = m.inbound_id "
+            "WHERE m.status IN ('draft', 'approved', 'failed') "
+            "ORDER BY CASE m.status WHEN 'draft' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END, "
+            "CASE m.kind WHEN 'reply' THEN 0 ELSE 1 END, m.created_at"
         ))
         for m in items:
             m["qa"] = outreach.check_message(conn, m)

@@ -63,6 +63,10 @@ DEFAULTS: dict[str, dict] = {
         "anthropic_api_key": "",
         "model": "claude-opus-5-5",
         "effort": "medium",
+        # Read each brand's or professional's website before Claude writes their first email.
+        "website_research": True,
+        # When someone replies: work out what they're asking and draft a response for approval.
+        "reply_drafts": True,
     },
     "email": {
         # dry_run writes every "sent" email to the local outbox instead of sending.
@@ -81,6 +85,8 @@ DEFAULTS: dict[str, dict] = {
         "imap_username": "",     # blank = same as SMTP username
         "imap_password": "",     # blank = same as SMTP password
         "imap_folder": "INBOX",
+        # Where reply alerts go (a person's inbox, not the sending mailbox). Blank = no alerts.
+        "alert_to": "",
     },
     "campaign": {
         "running": False,

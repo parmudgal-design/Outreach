@@ -81,11 +81,14 @@ def classify(raw: bytes) -> dict:
     else:
         written = new_text(body)
         kind = "unsubscribe" if (UNSUB_RE.search(written) or UNSUB_RE.search(subject)) else "reply"
+    written = new_text(body)
     return {
         "kind": kind,
         "from_addr": from_addr.lower(),
         "subject": subject,
-        "snippet": re.sub(r"\s+", " ", new_text(body))[:300],
+        "snippet": re.sub(r"\s+", " ", written)[:300],
+        "text": written[:6000],
+        "message_id": (MSGID_RE.findall(str(msg.get("Message-ID", ""))) or [None])[0],
         "refs": refs,
         "recipients": [],
     }

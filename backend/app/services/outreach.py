@@ -6,11 +6,13 @@ Lifecycle of a contact:
 Lifecycle of a message:
   draft -> approved -> sending -> sent | failed
   draft/approved -> discarded (contact replied, opted out, or user discarded it)
+Kinds of message: initial, followup (no answer yet), reply (our response to their reply).
 """
+import re
 import time
 
 from .. import db, settings_store
-from . import compliance, drafting, mailer, qa, schedule, specialties
+from . import compliance, drafting, mailer, marketplace, qa, research, schedule, specialties
 
 CONTACT_TYPES = ["doctor", "hospital", "company", "partner", "brand", "professional"]
 # Free-text contact fields set from imports and the contact form.
@@ -97,10 +99,16 @@ def set_status(conn, contact_id: int, status: str, note: str = "") -> dict:
         suppress(conn, c["email"], status)
     if c["status"] in ("unsubscribed", "bounced") and status not in ("unsubscribed", "bounced"):
         conn.execute("DELETE FROM suppression WHERE email = ?", (c["email"],))
-    if status in TERMINAL or status in ("replied", "adopted"):
-        # Nothing further goes out to someone who answered or opted out.
+    if status in ("unsubscribed", "bounced"):
+        # Nothing at all goes out to someone who opted out or can't receive mail.
         conn.execute(
             "UPDATE messages SET status = 'discarded', updated_at = ? WHERE contact_id = ? AND status IN ('draft', 'approved')",
+            (now, contact_id),
+        )
+    elif status in TERMINAL or status in ("replied", "adopted"):
+        # No more pitches or follow-ups to someone who answered; a response to their reply can still go.
+        conn.execute(
+            "UPDATE messages SET status = 'discarded', updated_at = ? WHERE contact_id = ? AND status IN ('draft', 'approved') AND kind != 'reply'",
             (now, contact_id),
         )
     conn.execute(
@@ -143,6 +151,9 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
         if kind == "followup" and not previous:
             raise OutreachError("No sent email to follow up on yet.")
     drafter = drafter or drafting.get_drafter(s["ai"])
+    if (kind == "initial" and getattr(drafter, "name", "") == "claude" and s["ai"].get("website_research")
+            and contact["type"] in marketplace.TYPES and research.is_due(contact)):
+        contact = research_contact(contact_id)
     try:
         if kind == "followup":
             d = drafter.followup(contact, s["sender"], s["pitches"], previous, contact["followups_sent"] + 1, s["marketplace"])
@@ -183,6 +194,27 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
         db.log_event("draft", f"{'Follow-up' if kind == 'followup' else 'Draft'} written for {contact['name']} ({d.drafted_by})",
                      contact_id=contact_id, conn=conn)
         return get_message(conn, cur.lastrowid)
+
+
+def research_contact(contact_id: int, force: bool = False) -> dict:
+    """Read the contact's website (when due, or `force`) and store an excerpt for the drafter.
+    A site that can't be read is noted on the contact; it never stops a draft."""
+    with db.connect() as conn:
+        c = get_contact(conn, contact_id)
+    if not force and not research.is_due(c):
+        return c
+    try:
+        text, url = research.research(c)
+        error = None
+    except research.ResearchError as e:
+        text, url, error = c.get("site_text") or "", "", str(e)  # an older excerpt stays useful
+    now = time.time()
+    with db.connect() as conn:
+        conn.execute("UPDATE contacts SET site_text = ?, site_checked_at = ?, site_error = ?, updated_at = ? WHERE id = ?",
+                     (text, now, error, now, contact_id))
+        db.log_event("research", f"Read {url} for {c['name']}" if not error else f"Website not read for {c['name']}: {error}",
+                     contact_id=contact_id, conn=conn)
+        return get_contact(conn, contact_id)
 
 
 # --- Messages ---------------------------------------------------------------
@@ -256,6 +288,17 @@ def discard(conn, message_id: int) -> dict:
 
 # --- Sending ----------------------------------------------------------------
 
+def can_receive(contact: dict, kind: str) -> bool:
+    """Whether a message of this kind may still go to this contact."""
+    if contact["status"] in ("unsubscribed", "bounced"):
+        return False
+    if kind == "reply":
+        return True  # answering someone who wrote to us, even to say "no thanks"
+    if contact["status"] == "declined":
+        return False
+    return not (kind == "followup" and contact["status"] in ("replied", "adopted"))
+
+
 def sent_since(conn, ts: float) -> int:
     return conn.execute("SELECT COUNT(*) FROM messages WHERE status = 'sent' AND sent_at >= ?", (ts,)).fetchone()[0]
 
@@ -276,7 +319,7 @@ def send(message_id: int, transport=None) -> dict:
         if m["status"] != "approved":
             raise OutreachError("Only approved messages can be sent.")
         contact = get_contact(conn, m["contact_id"])
-        if contact["status"] in TERMINAL or (m["kind"] == "followup" and contact["status"] in ("replied", "adopted")):
+        if not can_receive(contact, m["kind"]):
             conn.execute("UPDATE messages SET status = 'discarded', updated_at = ? WHERE id = ?", (time.time(), message_id))
             raise OutreachError(f"{contact['name']} is {contact['status']} — message discarded.")
         issues = check_message(conn, m, contact)
@@ -359,6 +402,83 @@ def _mark_failed(message_id: int, contact: dict, error: str, bounce: bool = Fals
             set_status(conn, contact["id"], "bounced", "rejected by the mail server")
 
 
+# --- Replies ----------------------------------------------------------------
+
+MAX_REPLY_ATTEMPTS = 3
+INTENT_LABEL = {
+    "interested": "Interested", "question": "Has a question", "not_now": "Not now", "not_interested": "Not interested",
+    "wrong_person": "Wrong person", "other": "Other",
+}
+
+
+def get_inbound(conn, inbound_id: int) -> dict:
+    i = db.one(conn.execute("SELECT * FROM inbound WHERE id = ?", (inbound_id,)))
+    if not i:
+        raise OutreachError("Reply not found.")
+    return i
+
+
+def latest_reply(conn, contact_id: int) -> dict | None:
+    return db.one(conn.execute(
+        "SELECT * FROM inbound WHERE contact_id = ? AND kind = 'reply' ORDER BY received_at DESC, id DESC LIMIT 1", (contact_id,)))
+
+
+def _reply_subject(theirs: dict, ours: dict | None) -> str:
+    base = re.sub(r"^\s*((re|fwd?|aw)\s*:\s*)+", "", theirs.get("subject") or (ours or {}).get("subject") or "", flags=re.I).strip()
+    return f"Re: {base}" if base else "Re: your reply"
+
+
+def draft_reply(inbound_id: int, drafter=None) -> dict | None:
+    """Work out what a reply is asking and draft a response, which always waits for approval.
+    Returns the new message, or None when no response is drafted (no Claude key, or turned off)."""
+    with db.connect() as conn:
+        theirs = get_inbound(conn, inbound_id)
+        if theirs["kind"] != "reply" or not theirs["contact_id"]:
+            raise OutreachError("That isn't a reply from one of your contacts.")
+        contact = get_contact(conn, theirs["contact_id"])
+        if not can_receive(contact, "reply"):
+            conn.execute("UPDATE inbound SET handled_at = ? WHERE id = ?", (time.time(), inbound_id))
+            raise OutreachError(f"{contact['name']} is {contact['status']} — no response will be drafted.")
+        ours = last_sent(conn, contact["id"])
+        s = settings_store.get_all(conn)
+    drafter = drafter or drafting.get_drafter(s["ai"])
+    try:
+        r = drafter.reply(contact, s["sender"], s["pitches"], s["marketplace"], ours, theirs) if s["ai"].get("reply_drafts") else None
+    except Exception as raised:
+        e = raised if isinstance(raised, drafting.DraftError) else drafting.DraftError(f"Unexpected drafting error: {raised}")
+        with db.connect() as conn:
+            if not e.retryable:
+                conn.execute("UPDATE inbound SET reply_attempts = reply_attempts + 1 WHERE id = ?", (inbound_id,))
+            db.log_event("draft", f"Couldn't draft a response to {contact['name']}: {e}", level="warn" if e.retryable else "error",
+                         contact_id=contact["id"], conn=conn)
+        if e is raised:
+            raise
+        raise e from raised
+
+    now = time.time()
+    with db.connect() as conn:
+        # Earlier unanswered replies from the same person are covered by this response.
+        conn.execute("UPDATE inbound SET handled_at = ? WHERE contact_id = ? AND kind = 'reply' AND handled_at IS NULL AND received_at <= ?",
+                     (now, contact["id"], theirs["received_at"]))
+        conn.execute("UPDATE inbound SET handled_at = ?, intent = ?, intent_note = ? WHERE id = ?",
+                     (now, r.intent if r else None, r.summary if r else None, inbound_id))
+        if not r or not r.body:
+            return None
+        conn.execute(
+            "UPDATE messages SET status = 'discarded', updated_at = ? WHERE contact_id = ? AND status IN ('draft', 'approved')",
+            (now, contact["id"]),
+        )
+        cur = conn.execute(
+            """INSERT INTO messages (contact_id, kind, subject, body, status, drafted_by, in_reply_to, inbound_id, created_at, updated_at)
+               VALUES (?, 'reply', ?, ?, 'draft', ?, ?, ?, ?, ?)""",
+            (contact["id"], _reply_subject(theirs, ours), r.body, r.drafted_by,
+             theirs["message_id"] or (ours or {}).get("message_id"), inbound_id, now, now),
+        )
+        db.log_event("draft", f"Response drafted for {contact['name']}'s reply ({INTENT_LABEL.get(r.intent, r.intent)})",
+                     contact_id=contact["id"], conn=conn)
+        return get_message(conn, cur.lastrowid)
+
+
 # --- Inbound ----------------------------------------------------------------
 
 def record_inbound(uid_key: str, verdict: dict) -> dict | None:
@@ -381,9 +501,10 @@ def record_inbound(uid_key: str, verdict: dict) -> dict | None:
                     break
         kind = verdict["kind"] if contact else "unmatched"
         conn.execute(
-            "INSERT INTO inbound (contact_id, uid_key, kind, from_addr, subject, snippet, received_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO inbound (contact_id, uid_key, kind, from_addr, subject, snippet, body, message_id, received_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (contact["id"] if contact else None, uid_key, kind, verdict.get("from_addr", ""), verdict.get("subject", ""),
-             verdict.get("snippet", ""), time.time()),
+             verdict.get("snippet", ""), verdict.get("text", ""), verdict.get("message_id"), time.time()),
         )
         if not contact:
             return None

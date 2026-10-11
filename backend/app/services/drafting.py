@@ -25,6 +25,18 @@ DRAFT_SCHEMA = {
 }
 
 
+REPLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "intent": {"type": "string", "enum": prompts.REPLY_INTENTS},
+        "summary": {"type": "string"},
+        "body": {"type": "string"},
+    },
+    "required": ["intent", "summary", "body"],
+    "additionalProperties": False,
+}
+
+
 class DraftError(Exception):
     """A draft could not be produced. `retryable` tells the worker whether to try again later."""
 
@@ -40,6 +52,14 @@ class Draft:
     drafted_by: str
 
 
+@dataclass
+class ReplyDraft:
+    intent: str
+    summary: str
+    body: str
+    drafted_by: str
+
+
 class ClaudeDrafter:
     name = "claude"
 
@@ -48,13 +68,13 @@ class ClaudeDrafter:
         self.model = model
         self.effort = effort
 
-    def _complete(self, user_text: str, system: str = prompts.SYSTEM) -> dict:
+    def _complete(self, user_text: str, system: str = prompts.SYSTEM, schema: dict = DRAFT_SCHEMA) -> dict:
         kwargs = dict(
             model=self.model,
             max_tokens=16000,
             system=system,
             messages=[{"role": "user", "content": user_text}],
-            output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": DRAFT_SCHEMA}},
+            output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": schema}},
         )
         try:
             # Server-side fallback re-runs a safety-classifier decline on the recommended model.
@@ -104,6 +124,12 @@ class ClaudeDrafter:
         data = self._complete(text, prompts.system_for(contact))
         return Draft(previous["subject"], data["body"].strip(), self.name)
 
+    def reply(self, contact: dict, sender: dict, pitches: dict, market: dict | None, ours: dict | None, theirs: dict) -> ReplyDraft:
+        text = prompts.reply_request(contact, sender, pitches, _market(market), reply_greeting(contact, sender), ours, theirs)
+        data = self._complete(text, prompts.reply_system(contact), REPLY_SCHEMA)
+        intent = data.get("intent") if data.get("intent") in prompts.REPLY_INTENTS else "other"
+        return ReplyDraft(intent, (data.get("summary") or "").strip(), (data.get("body") or "").strip(), self.name)
+
     def ping(self) -> str:
         response = self.client.messages.create(
             model=self.model,
@@ -112,6 +138,12 @@ class ClaudeDrafter:
             messages=[{"role": "user", "content": "Reply with the single word: ok"}],
         )
         return next((b.text for b in response.content if b.type == "text"), "").strip()
+
+
+def reply_greeting(contact: dict, sender: dict) -> str:
+    if contact.get("type") in marketplace.TYPES:
+        return greeting.salutation(greeting.for_contact(contact), sender.get("tone"))
+    return legacy_greeting(contact, sender.get("tone"))
 
 
 def _market(market: dict | None) -> dict:
@@ -265,6 +297,10 @@ class TemplateDrafter:
             f"{prompts.signoff_block(sender)}"
         )
         return Draft(previous["subject"], body, self.name)
+
+    def reply(self, *args, **kwargs) -> None:
+        """No suggested responses without Claude: the alert still goes out and a person answers."""
+        return None
 
 
 def get_drafter(ai_settings: dict):
