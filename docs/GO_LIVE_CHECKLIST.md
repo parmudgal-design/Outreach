@@ -6,6 +6,7 @@ Work through this before the first real send. Owners: **Founder**, **Deployer** 
 
 - [ ] **Deployer:** app deployed with HTTPS, following [DEPLOYMENT.md](DEPLOYMENT.md). `docker compose ps` shows the app healthy.
 - [ ] **Deployer:** `OUTREACH_SECRET_KEY` saved in the team password manager, separate from the backups.
+- [ ] **Deployer:** `OUTREACH_PUBLIC_URL` set in `.env` (e.g. `https://outreach.dr-tracker.com`) so reply alerts link to the app.
 - [ ] **Deployer:** a user account created for everyone who reviews drafts. No shared logins.
 - [ ] **Deployer:** daily backups scheduled (cron), with copies going off the server.
 - [ ] **Deployer:** one restore tested end to end (stop, copy backup over, remove `-wal`/`-shm`, start, log in, data looks right).
@@ -23,11 +24,12 @@ Work through this before the first real send. Owners: **Founder**, **Deployer** 
 
 ## 3. Contacts
 
-- [ ] **Founder:** upload the founder's workbook **unchanged** (Contacts → Upload spreadsheet).
-- [ ] **Founder:** read the import summary before confirming: how many to add, to update, and skipped (by reason), plus any flags.
-- [ ] **Founder:** the 315 contacts already in the database from the earlier CSV import are corrected by this re-import (contact types updated, stale template drafts replaced). Open a sample of 10 to 20 in **Review** and check type, specialty and draft.
+- [ ] **Founder:** prepare the CSV with these columns: `Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`, plus `Website` where known. `Category` is `brand` or `professional`, `Speciality` the marketplace category (e.g. "Supplements"), `Product` one line on what they sell or do. `backend/tests/fixtures/marketplace_contacts.csv` is a worked example; Contacts → Template gives the same layout.
+- [ ] **Founder:** Contacts → Upload spreadsheet. Check the column mapping in the preview, then import. Read the summary: added, duplicates, opted-out and invalid rows.
+- [ ] **Founder:** open 10 to 20 contacts and check type, category and description. Fix any by hand.
 - [ ] **Founder:** check how many contacts are generic inboxes (`info@`, `care@`, `contact@`). Expect fewer replies from these.
-- [ ] **Founder:** download the workbook back with Status updated (Contacts → Update workbook) and open it, to confirm the round trip works.
+- [ ] **Founder:** with auto-draft on, drafts appear in **Review** within a minute or two. Until the API key is added they come from templates; once it's added, use **Rewrite** (or discard them) so Claude writes them fresh with the website research.
+- [ ] *(Only if the founder's multi-tab workbook is used instead of a CSV)* upload it unchanged; Contacts → Update workbook writes Status back to it.
 
 ## 4. Connections: test end to end with a test mailbox
 
@@ -35,13 +37,17 @@ Work through this before the first real send. Owners: **Founder**, **Deployer** 
 - [ ] **Deployer:** the Claude call works with the current model name and parameters. The model setting defaults to `claude-opus-5-5`. Drafting uses the beta messages endpoint with server-side fallback, `output_config` effort and a JSON schema. If Test fails, pick another model under Connections and test again.
 - [ ] **Deployer:** SMTP: **Test login** and **Send test** pass. "Show original" in Gmail shows SPF, DKIM and DMARC PASS.
 - [ ] **Deployer:** IMAP **Test** passes.
+- [ ] **Founder:** Connections → **Email me when someone replies** set to a person's own inbox (not the sending mailbox).
+- [ ] **Founder:** open 5 brand contacts with websites and press **Read website now**. The excerpt should describe what they sell. Sites that block it are fine; those emails use the CSV alone.
 - [ ] **Deployer + Founder:** full loop with one test contact (your own second mailbox):
   - [ ] draft created and reads well
   - [ ] approved in Review
   - [ ] sent (check Activity → Outbox)
   - [ ] reply from the test mailbox detected, status changes, follow-up cancelled
+  - [ ] a suggested response appears in Review next to the reply, with the right intent (try one "interested" reply and one asking about price)
+  - [ ] the alert email arrives, and the approved response lands in the same thread in the test mailbox
   - [ ] bounce detected (send to a made-up address on a real domain)
-- [ ] **Founder:** read the first 10 real Claude drafts closely before approving any.
+- [ ] **Founder:** read the first 10 real Claude drafts closely before approving any, and the first few suggested replies.
 
 ## 5. Wording and legal
 

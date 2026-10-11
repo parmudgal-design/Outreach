@@ -1,6 +1,6 @@
 # Dr.Tracker Outreach
 
-An email outreach system for bringing specialists, clinic doctors, hospitals, health companies and product partners across India on board with Dr.Tracker. You add your API keys, upload a spreadsheet, review the first drafts, and it runs on its own. It drafts each email for the recipient and their specialty, sends at a safe pace inside Indian working hours, follows up once, and notices replies, bounces and opt-outs.
+An email outreach system for bringing health brands (wellness food, supplements, protein, devices), health professionals, doctors, hospitals and companies across India on board with Dr.Tracker. You add your API keys, upload a spreadsheet, review the drafts, and it runs on its own. It reads each partner's website, drafts an email for them, sends at a safe pace inside Indian working hours, and follows up once. When someone replies, it works out what they want, drafts a response for you to approve, and emails you an alert. It also handles bounces and opt-outs.
 
 `dr-tracker-outreach-overview.pdf` describes the original browser-only version, which is kept in [`artifact/`](artifact/). This version builds out the roadmap from section 5 of that PDF: live sending, reply and bounce detection, background automation, and a path to a real sending domain.
 
@@ -14,8 +14,8 @@ PORT=8765 ./run.sh       # pick another port if 8000 is taken
 Then open the page and follow the **Getting started** checklist on the Dashboard:
 
 1. **Setup:** sender name, role, phone and business address (required for the compliance footer), plus a pitch for each audience. The pitches are optional; sensible defaults are used.
-2. **Contacts → Upload spreadsheet:** CSV or `.xlsx`. Columns are matched automatically (you can fix the mapping), duplicates and opted-out emails are skipped, and each doctor's specialty is detected. Try `samples/sample-contacts.csv`, or download the template from the Contacts page.
-3. **Connections:** paste an Anthropic API key for AI-written drafts, and an email account (for Gmail, an App Password) to send for real. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run).
+2. **Contacts → Upload spreadsheet:** CSV or `.xlsx`. Columns are matched automatically (you can fix the mapping), duplicates and opted-out emails are skipped, and each doctor's specialty is detected. For brands and professionals use `Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`, plus an optional `Website` column (see `backend/tests/fixtures/marketplace_contacts.csv`), or download the template from the Contacts page.
+3. **Connections:** paste an Anthropic API key for AI-written drafts, an email account (for Gmail, an App Password) to send for real, and an address for reply alerts. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run). The key and mailbox can be added at any time; nothing else changes.
 4. **Review:** read and edit the drafts, then approve. **Campaign → Start.**
 
 Going live: work through [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md). Hosting (Docker + Caddy for HTTPS, backups, restore) is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), and sending-domain setup (SPF, DKIM, DMARC, warm-up) in [docs/DELIVERABILITY.md](docs/DELIVERABILITY.md).
@@ -30,7 +30,7 @@ Going live: work through [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md).
 ## How it works
 
 ```
-spreadsheet ─► contacts ─► specialty detection ─► draft (Claude or template)
+spreadsheet ─► contacts ─► website read (brands/professionals) ─► draft (Claude or template)
                                                       │
                                          pre-send check (quality + Indian rules)
                                                       │
@@ -42,6 +42,8 @@ spreadsheet ─► contacts ─► specialty detection ─► draft (Claude or t
                                                       │
           IMAP poll ◄─ replies / bounces / "unsubscribe" ─► status updates, follow-ups stop,
                                                             opt-out list updated
+          reply ─► sorted (interested, question, not now…) ─► suggested response in Review
+                                                            + alert email to you
           no reply after N days ─► one short follow-up in the same thread
 ```
 
@@ -56,6 +58,8 @@ spreadsheet ─► contacts ─► specialty detection ─► draft (Claude or t
 | Pre-send checks | `backend/app/services/qa.py` |
 | SMTP sending and IMAP reply/bounce detection | `backend/app/services/mailer.py`, `inbox.py` |
 | Spreadsheet import | `backend/app/services/importer.py` |
+| Website research (reads a partner's homepage before drafting) | `backend/app/services/research.py` |
+| Reply alerts and inbox-failure alerts | `backend/app/services/alerts.py` |
 | Storage (SQLite, `data/outreach.db`, owner-only permissions) | `backend/app/db.py` |
 | The founder's partner workbook: import, re-import, Status write-back | `backend/app/services/partner_sheet.py` |
 | Logins, sessions, startup safety checks; admin CLI | `backend/app/auth.py`, `backend/app/cli.py` |
@@ -85,6 +89,21 @@ Contact types `brand` and `professional` (`b`/`p` in the type column) get a diff
 - **Wording:** edit it under **Setup → Marketplace pitch**. That covers the value propositions, the trial switch and trial text, and the signature.
 - **Checks:** these block sending: placeholders, broken greetings, any price, fee or trial wording while the trial switch is off, and commission, referral or per-booking language to a GP or specialist/clinic. These are warnings: the old monitoring pitch, more than 200 words, and a `CHECK:` note from the sheet.
 
+### Website research
+
+Before Claude writes a brand's or professional's first email, the app reads their homepage: the `Website` column, or failing that their email domain (never Gmail, Yahoo, Rediff and other free-mail domains). It keeps the title, description, headings and a little body text, about 2,500 characters, and passes that to Claude fenced off as their own marketing. Claude may use it only to be specific about what they sell, never to repeat their claims, prices or awards, and the pre-send check still blocks superlatives and health claims. Error pages, bot checks and JavaScript-only sites are skipped, and drafting simply goes ahead without the excerpt. Only public addresses are fetched. The excerpt is kept for 30 days and shown on the contact, with a **Read website again** button. Turn it off under **Connections → Claude**. Template drafts (no key) don't use it.
+
+### Replies
+
+When the inbox check finds a reply from someone you've emailed:
+
+1. Their status becomes **Replied** and any pending follow-up is cancelled (as before).
+2. With an API key, Claude sorts the reply as *interested*, *has a question*, *not now*, *not interested*, *wrong person* or *other*, writes a one-line summary, and drafts a response. Interested people are asked for two or three times for the 15-minute call. Questions are answered only from your Setup wording; anything else (pricing, numbers, timelines) is deferred to the call, never guessed.
+3. The response waits in **Review**, next to their message, *always* for your approval, even if auto-approval is on. It is sent in the same thread and goes ahead of other queued emails. Saying you'll cover pricing on the call is only a warning; quoting an amount, a fee, a trial or commission is still blocked.
+4. An alert goes to **Connections → Email me when someone replies**: who replied, what they want, their message, and whether a response is waiting. Without a key the alert still goes out; you answer from your mailbox. If the inbox can't be read, you get an alert at most every 6 hours.
+
+Setting someone to **Not interested** keeps a drafted courtesy reply; **Unsubscribed** and **Bounced** discard everything. Set `OUTREACH_PUBLIC_URL` so the alerts link to the app.
+
 Hospitals, companies and product partners each get their own approach. A partner pitch is built around the partner's specific product (the **Product** column).
 
 ## Indian rules built in
@@ -107,11 +126,12 @@ These are safeguards, not legal advice. Have someone qualified review your pitch
 .venv/bin/python -m pytest backend/tests -q
 ```
 
-The tests run the whole pipeline (import → draft → approve → send over real SMTP to a local test server → reply, bounce and unsubscribe handling → threaded follow-up), plus the daily cap, the IST window, specialty detection and the guardrail checks.
+The tests run the whole pipeline (import → draft → approve → send over real SMTP to a local test server → reply, bounce and unsubscribe handling → threaded follow-up), suggested responses and alerts, website research, plus the daily cap, the IST window, specialty detection and the guardrail checks.
 
 ## Not verified yet
 
-- **Real Claude drafts:** the Claude API call is written against the current SDK, but it hasn't run with a real key. Use **Connections → Test** once you add one, then read the first few drafts closely.
+- **Real Claude drafts and reply responses:** the Claude API calls are written against the current SDK (structured JSON output, server-side refusal fallback), but they haven't run with a real key. Use **Connections → Test** once you add one, then read the first few drafts and the first few suggested replies closely.
+- **Website research on real sites:** checked against a few live Indian brand sites. Some block automated requests or need JavaScript; those contacts are drafted from the CSV alone.
 - **Real Gmail sending and IMAP:** tested only against a local SMTP server and synthetic inbound messages. Use **Send test** and **Test** on the Connections page with your account first.
 - **Deliverability at scale:** a Workspace mailbox on dr-tracker.com (SPF, DKIM and DMARC are already published) is fine for 20–30 emails a day. For more, see [docs/DELIVERABILITY.md](docs/DELIVERABILITY.md).
 - **Docker image:** the Dockerfile, compose file and Caddyfile are checked (`docker compose config`, `caddy adapt`) but the image hasn't been built and run here. Try it on the server first.

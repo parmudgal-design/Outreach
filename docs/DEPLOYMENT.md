@@ -122,6 +122,7 @@ docker compose ps
 | `HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Address the app listens on. |
 | `PORT` | `8000` | Port the app listens on. |
 | `OUTREACH_COOKIE_SECURE` | off (`1` in compose) | Set to `1` behind HTTPS so the session cookie is marked Secure. |
+| `OUTREACH_PUBLIC_URL` | none | The address people open the app at, e.g. `https://outreach.dr-tracker.com`. Used for the link in reply alert emails. |
 | `OUTREACH_TICK_SECONDS` | `15` | Seconds between worker ticks. |
 | `OUTREACH_WORKER` | `1` | Set to `0` to run without the background worker (nothing gets sent). |
 
