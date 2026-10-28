@@ -41,10 +41,6 @@ class Addressee:
     def is_person(self) -> bool:
         return self.kind == "person"
 
-    @property
-    def full_name(self) -> str:
-        return " ".join(x for x in (self.first, self.last) if x)
-
     def short(self) -> str:
         """How the email refers to them by name: 'Dr. Rao', 'Meenal', 'FitPlate'."""
         if self.is_person:
@@ -113,7 +109,8 @@ def parse(name: str, email: str = "", assume_person: bool = False, bare_person: 
         outside, inside = m.group(1).strip(), m.group(2).strip()
         # "Dr. Kavya Rao (FitPlate)" or "FitPlate (Dr. Kavya Rao)"
         for person_part, org_part in ((outside, inside), (inside, outside)):
-            p = _person(person_part, require_title=False)
+            # A brand's brackets hold a branch or a legal name ("Dr Trust (BLR Regional)"), not a person, unless titled.
+            p = _person(person_part, require_title=not (assume_person or bare_person))
             if p and not looks_like_org(person_part):
                 p.org = _org_name(org_part)
                 return p

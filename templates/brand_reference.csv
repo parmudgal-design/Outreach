@@ -1,0 +1,121 @@
+name,spend_lakhs_per_quarter,skip,basis
+# Brands in the outreach sheet whose size the sheet and website can't show. Spend is a practical estimate of
+# marketing spend last quarter in ₹ lakhs (100 lakhs = ₹1 crore), from what is publicly known about each
+# company's scale; it's only used when the sheet's own spend cell is blank. A skip reason stops the email.
+# Names are matched the way the importer matches duplicates (brackets, Pvt Ltd and city suffixes ignored).
+# Edit freely: a person's figure always beats this file.
+boAt,2000-5000,,a national consumer-electronics brand with heavy TV and digital advertising
+Noise,1500-4000,,a national wearables brand with heavy digital advertising
+Fire-Boltt,1500-4000,,a national wearables brand with heavy digital advertising
+Dabur India,3000-8000,,a national FMCG and healthcare company
+Himalaya Since 1930,2000-5000,,a national health and personal-care company
+Himalaya Nutravedics,300-800,,the nutrition arm of a national health company
+Patanjali Nutrela Nutrition,500-1500,,the nutrition brand of a national FMCG company
+Amway India,1000-3000,,a national direct-selling wellness company
+HealthKart HK Vitals,1000-3000,,a national supplements group (HealthKart)
+HealthKart Hyderabad,1000-3000,,a national supplements group (HealthKart)
+MuscleBlaze Hyderabad,1000-3000,,a national sports-nutrition brand (HealthKart)
+Be Bodywise,800-2000,,a well-funded D2C wellness brand (Mosaic Wellness)
+Man Matters,800-2000,,a well-funded D2C wellness brand (Mosaic Wellness)
+Country Delight,1000-3000,,a national dairy and grocery subscription brand
+Epigamia,500-1500,,a national dairy brand
+Tata Soulfull,300-800,,the millet brand of a national FMCG company
+Kapiva,500-1500,,a well-funded D2C Ayurveda brand
+Plix Life,400-1200,,a well-funded D2C nutrition brand
+OZiva,400-1200,,a well-funded D2C nutrition brand
+Wellbeing Nutrition Hyderabad,400-1200,,a well-funded D2C nutrition brand
+The Whole Truth Hyderabad,400-1200,,a well-funded D2C food brand
+Yoga Bar Hyderabad,400-1200,,a national healthy-snacks brand
+Sleepy Owl Coffee,200-600,,a funded D2C coffee brand
+Third Wave Coffee Roasters,200-600,,a funded coffee chain and brand
+Optimum Nutrition India,500-1500,,a global sports-nutrition brand
+Myprotein India,400-1200,,a global sports-nutrition brand
+Dymatize India,150-400,,a global sports-nutrition brand
+Ultimate Nutrition India,50-150,,an international sports-nutrition brand
+GNC India Hyderabad,200-600,,a global supplements brand
+Fast&Up,300-800,,a national sports-nutrition brand
+Avvatar Protein,200-600,,the protein brand of a national dairy company
+Power Gummies,200-600,,a funded D2C supplements brand
+Chicnutrix,100-300,,a funded D2C supplements brand
+Setu Nutrition,100-300,,a funded D2C supplements brand
+Decode Age,50-150,,a funded D2C longevity-supplements brand
+Unived Healthcare,50-150,,a funded D2C nutrition brand
+Steadfast Nutrition,100-300,,a national sports-nutrition brand
+Nutrabay,150-400,,a national online supplements brand
+Bigmuscles Nutrition,50-150,,a national sports-nutrition brand
+Bold Care,200-600,,a funded D2C sexual-wellness brand
+Accu-Chek India,300-800,,a global diabetes-care brand
+Omron Healthcare,300-800,,a global health-devices brand
+Dr Trust,200-600,,a national health-devices brand
+Nureca Limited,200-600,,a listed health-devices company (Dr Trust)
+Dr. Morepen,300-800,,a national health-devices and OTC brand
+Rossmax India,50-150,,an international health-devices brand
+Tanita India,30-100,,an international health-devices brand
+Medisana India,30-100,,an international health-devices brand
+Ultrahuman,300-800,,a well-funded health-wearables brand
+GOQii,100-300,,a funded health-wearables brand
+BeatO,100-300,,a funded diabetes-care brand
+beatXP,200-600,,a national fitness and health-devices brand
+Portronics Digital,300-800,,a national consumer-electronics brand
+Ambrane India,150-400,,a national consumer-electronics brand
+Lifelong Online,150-400,,a national home and fitness products brand
+Pebble,300-800,,a national wearables brand
+Gizmore,100-300,,a national wearables brand
+Vestige,300-800,,a national direct-selling wellness company
+Modicare,300-800,,a national direct-selling wellness company
+Tiens Bangalore,30-100,,an international direct-selling wellness company
+Kerala Ayurveda Ltd,100-300,,a listed Ayurveda company
+Jiva Ayurveda,300-800,,a national Ayurveda brand
+Baidyanath Delhi,300-800,,a national Ayurveda brand
+Hamdard Wellness,300-800,,a national Unani and wellness brand
+Kottakkal Arya Vaidya Sala,100-300,,a national Ayurveda institution and brand
+Sri Sri Tattva,300-800,,a national Ayurveda and FMCG brand
+Organic Tattva,150-400,,a national organic-food brand
+True Elements,150-400,,a national healthy-food brand
+Slurrp Farm,150-400,,a funded D2C millet-food brand
+Wingreens Farms,150-400,,a national food brand
+Bagrry's India,150-400,,a national breakfast-cereals brand
+Raw Pressery,150-400,,a national cold-pressed juice brand
+Urban Platter,50-150,,a national specialty-foods brand
+Nutty Yogi,30-100,,a D2C healthy-food brand
+Oh! Nuts,30-100,,a national dry-fruits retail brand
+Open Secret,100-300,,a funded D2C snacks brand
+Snackible,50-150,,a funded D2C snacks brand
+Phab Foods,50-150,,a funded D2C protein-snacks brand
+To Be Honest,50-150,,a funded D2C snacks brand
+Go Zero Ice Creams,50-150,,a funded D2C ice-cream brand
+NOTO Healthy Ice Creams & Desserts,30-100,,a funded D2C ice-cream brand
+Earthful,30-100,,a D2C nutrition brand
+RiteBite Hyderabad,100-300,,a national protein-bars brand
+Max Protein Hyderabad,100-300,,a national protein-snacks brand
+Sattviko,30-100,,a funded D2C snacks brand
+Vlcc Natural Science,300-800,,a national wellness and personal-care brand
+Wet and Dry Personal Care,30-100,,a D2C personal-care brand
+The Tribe Concepts,30-100,,a D2C personal-care brand
+Inlife Healthcare,30-100,,a national online supplements brand
+Himalayan Organics,50-150,,a national online supplements brand
+Nutrova,30-100,,a D2C nutrition brand
+Cosmix Wellness,30-100,,a D2C nutrition brand
+Femi9 Energy,10-30,,a D2C women's-nutrition brand
+Supply6,30-100,,a funded D2C hydration brand
+Muse Wearables,30-100,,a funded health-wearables brand
+Dozee,,"a hospital patient-monitoring company, not a consumer product sold in the chat",
+Poly Medicure Ltd,,"a hospital medical-devices manufacturer, not a consumer brand",
+Eatfit - Curefoods,,"a cloud kitchen, not a product sold in the chat",
+Café Manna,,"a café, not a product sold in the chat",
+MedPlus Hyderabad,,a pharmacy chain (a store or reseller) rather than a brand,
+Natures Basket,,a grocery chain (a store or reseller) rather than a brand,
+Rujuta Diwekar,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Luke Coutinho Holistic Healing,,a wellness coach (a professional) rather than a brand. They belong in the professionals list.,
+Pooja Makhija,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Shonali Sabherwal,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Anjali Mukherjee,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Munmun Ganeriwal,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Kinita Kadakia Patel,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Suman Agarwal,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Dt. Radhika Karle,,a dietitian (a professional) rather than a brand. They belong in the professionals list.,
+Dr. Siddhant Bhargava,,a doctor and nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Inchbyinch - By Alka,,a nutritionist (a professional) rather than a brand. They belong in the professionals list.,
+Nmami Life,,a nutrition consultancy (a professional) rather than a brand. They belong in the professionals list.,
+SkinLab,,a skin clinic (a professional) rather than a brand. They belong in the professionals list.,
+Mediwheel - Your Wellness Partner,,"a health-checkup platform, not a product sold in the chat",

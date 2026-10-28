@@ -3,7 +3,6 @@ offset is exact and independent of the server's own time zone."""
 from datetime import datetime, timedelta, timezone
 
 IST = timezone(timedelta(hours=5, minutes=30), "IST")
-DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def now_ist(ts: float | None = None) -> datetime:

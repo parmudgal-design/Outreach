@@ -3,7 +3,7 @@ shown to the reviewer. Cheap heuristics that catch the usual problems with an
 AI or template draft before a human skims it."""
 import re
 
-from . import greeting, marketplace
+from . import greeting, marketplace, templates
 
 URGENCY_RE = re.compile(r"\b(limited time|last chance|act now|only \d+ (spots|slots|places)|expires|hurry|don'?t miss)\b", re.I)
 PLACEHOLDER_RE = re.compile(r"\[[^\]]{1,40}\]|\{[^}]{1,40}\}|\(not (given|supplied)|\(unknown\)|\(sender name\)|lorem ipsum", re.I)
@@ -40,9 +40,12 @@ PRICING_RE = re.compile(
     r"(₹\s?\d|\brs\.?\s?\d|\binr\b|\bprice[ds]?\b|\bpricing\b|\b(listing |joining |sign[- ]?up )?fees?\b|\bcommissions?\b|"
     r"\bper (booking|appointment|lead|sale|order|consultation|month|year)\b|\bsubscriptions?\b|\bdiscount(s|ed)?\b|"
     r"\b\d+\s?% off\b|\bfree (trial|listing|of charge|for \w+ months?)\b|\bcharges?\b|\bpaid (listing|plan|placement)s?\b|"
-    r"\bsponsored\b|\bpromo(tional)? (code|offer)\b|\btrials?\b|\bfree (first )?(month|months|week|weeks)\b|\bearly[- ]partner (offer|pricing|rate)s?\b)",
+    r"\bsponsored\b|\bpromo(tional)? (code|offer)\b|\btrials?\b|\bfree (first )?(month|months|week|weeks)\b|\bearly[- ]partner (offer|pricing|rate)s?\b|"
+    r"\bcoupons?\b)",
     re.I,
 )
+# What a shopper does in the chat, not money talk to the partner (the brand guide's own wording).
+SHOPPER_PRICE_RE = re.compile(r"\b(compar(e|es|ing) (the )?(store |shop )?prices( across (stores|apps))?|store prices|best[- ]priced store)\b", re.I)
 # Paying for, or being paid for, patient referrals: never in an email to a doctor or clinic (NMC 2023).
 # Naming the topic without an amount or offer ("happy to go through pricing on the call"): fine in a reply to someone who asked.
 GENERIC_PRICE_RE = re.compile(r"(prices?|priced|pricing|(listing |joining |sign[- ]?up )?fees?|charges?)", re.I)
@@ -75,9 +78,29 @@ def _without(text: str, phrase: str) -> str:
     return re.sub(r"\s+".join(re.escape(w) for w in words), " ", text, flags=re.I)
 
 
+def spend_figures(spend: str) -> list[str]:
+    """The spend figures an email may quote: the sheet's cell as written, its range ("18–25") and, for the
+    brand guide's bill-style subject, the top of the range rounded ("25")."""
+    spend = (spend or "").strip()
+    rng = marketplace.spend_range(spend)
+    out = [spend] if spend else []
+    if rng:
+        low, high = marketplace.lakhs(rng[0]), marketplace.lakhs(rng[1])
+        out += [f"{low}{dash}{high}" for dash in ("–", "-", "—", " - ", " – ", " to ")] + [high, str(round(rng[1])), f"{round(rng[1]):,}"]
+    return sorted(set(out), key=len, reverse=True)
+
+
+def _without_spend(text: str, spend: str) -> str:
+    """The guide quotes the sheet's spend figure ("₹18–25 lakhs"); only that figure is allowed."""
+    for fig in spend_figures(spend):
+        text = re.sub(r"(?:₹|rs\.?|inr)\s?" + re.escape(fig) + r"\s*(lakhs?|lacs?|l)\b", " ", text, flags=re.I)
+    return text
+
+
 def marketplace_checks(text: str, contact: dict, market: dict, add, kind: str = "initial") -> None:
     if m := MONITORING_RE.search(text):
         add("warn", f"Uses the old patient-monitoring pitch (\"{m.group(0)}\"). Marketplace emails are about being found, not about monitoring patients.")
+    text = SHOPPER_PRICE_RE.sub(" ", _without_spend(text, contact.get("spend") or ""))
     allowed = (market.get("trial_text") or "").strip() if market.get("mention_trial") else ""
     if marketplace.is_doctor(contact) and (m := REFERRAL_RE.search(text)):
         add("error", f"Mentions \"{m.group(0)}\" to a doctor or clinic. Paying for, or being paid for, patient "
@@ -94,6 +117,16 @@ def marketplace_checks(text: str, contact: dict, market: dict, add, kind: str = 
                          "(turn on \"Mention the trial\" under Setup to allow the trial text).")
     if m := EFFICACY_RE.search(text):
         add("error", f"Makes a health or efficacy claim (\"{m.group(0)}\") about a product or service. Not allowed (ASCI, Drugs & Magic Remedies Act).")
+
+
+# The brand guide's own template says "your product" (always, and in place of a missing hero product).
+GUIDE_YOUR_PRODUCT_RE = re.compile(r"\b(take|bought|to|leads?|points them to) your product\b|\byour product (directly|leads|after)\b", re.I)
+
+
+def _without_guide_wording(text: str, contact: dict) -> str:
+    if contact.get("type") == "brand" and templates.guide("brand")[0]:
+        return GUIDE_YOUR_PRODUCT_RE.sub(" ", text)
+    return text
 
 
 def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, kind: str = "initial",
@@ -113,9 +146,12 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
     if not body:
         add("error", "No body yet.")
         return out
-    if PLACEHOLDER_RE.search(subject + " " + body):
+    found = [m.group(1) for m in templates.MARKER_RE.finditer(body)]  # "2" for [SCREENSHOT_2], None for [HOW_IT_WORKS_IMAGE]
+    markers = len(found)
+    body_text = templates.MARKER_RE.sub("", body)  # image markers are the one bracketed text that belongs in a draft
+    if PLACEHOLDER_RE.search(subject + " " + body_text):
         add("error", "A placeholder was left in (e.g. [Name] or \"(not given)\").")
-    elif m := ARTEFACT_RE.search(subject + "\n" + body):
+    elif m := ARTEFACT_RE.search(_without_guide_wording(subject + "\n" + body_text, contact)):
         add("error", f"A placeholder or empty-field artefact was left in (\"{m.group(0)}\"). Rewrite the sentence without it.")
     for problem in greeting.check(body, contact):
         add("error", problem)
@@ -129,7 +165,31 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
     if expected and len(expected[0]) > 1 and not any(n and n.lower() in body.lower() for n in expected):
         add("warn", f"Doesn't mention {expected[0]} by name — check the greeting.")
 
-    words = len(body.split())
+    if markers and (kind != "initial" or not is_market):
+        add("warn", "Has an image marker, but only first emails to brands and professionals carry images. The marker "
+                    "line is removed when it's sent.")
+    elif kind == "initial" and is_market and templates.has_banner(ctype):
+        count = len(templates.images(ctype))
+        numbered = [int(n) for n in found if n]
+        if found.count(None) > 1:
+            add("error", f"The image marker {templates.MARKER} is there {found.count(None)} times. Keep one, on its own line where the images should go.")
+        for n in sorted(set(numbered)):
+            if numbered.count(n) > 1:
+                add("error", f"{templates.screenshot_marker(n)} is there {numbered.count(n)} times. Keep one, on its own line where that screenshot goes.")
+            if not 1 <= n <= count:
+                add("error", f"{templates.screenshot_marker(n)} doesn't match an image (there {'is' if count == 1 else 'are'} {count}). Take it out.")
+        if not markers:
+            where = "in the body" if count > 1 else "after the first paragraph"
+            add("warn", f"No image markers: the image{'s' if count > 1 else ''} will go {where} automatically. Put "
+                        + (", ".join(templates.screenshot_marker(i) for i in range(1, count + 1)) if count > 1 else templates.MARKER)
+                        + " on their own lines where you want them.")
+        elif numbered and None not in found and (gone := [i for i in range(1, count + 1) if i not in numbered]):
+            add("warn", f"No {', '.join(templates.screenshot_marker(i) for i in gone)}: "
+                        f"{'it goes' if len(gone) == 1 else 'they go'} after the last screenshot that has a marker.")
+    if kind == "initial" and is_market and templates.guide(ctype)[0] and re.search(r"Dr\.Tracker", subject + body):
+        add("warn", "Writes \"Dr.Tracker\" without a space. The guide spells it \"Dr. Tracker\".")
+
+    words = len(body_text.split())
     limit = {"followup": 150, "reply": 180}.get(kind) or (200 if is_market else 240)
     if words > limit:
         add("warn", f"{words} words — long for a {({'followup': 'follow-up', 'reply': 'reply'}).get(kind, 'cold email')}.")
@@ -140,6 +200,7 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
         [
             " ".join([(p or {}).get("pitch", "") + " " + " ".join((p or {}).get("props", [])) for p in pitches.values()]),
             contact.get("notes") or "",
+            " ".join(f"₹{f} lakhs ₹{f} lakh" for f in spend_figures(contact.get("spend") or "")),
             market.get("value_prop_brands", "") + " " + market.get("value_prop_professionals", "") + " " + market.get("trial_text", ""),
         ]
     ).lower()
@@ -150,6 +211,11 @@ def check(subject: str, body: str, contact: dict, sender: dict, pitches: dict, k
         add("warn", "Uses pressure language (deadlines, scarcity) — CCPA misleading-ads / dark-pattern guidelines. Take it out.")
 
     text = subject + "\n" + body
+    if is_market:
+        # A brand's own name isn't a claim ("Miracle Drinks", "Fit Treat Nutrition").
+        for n in sorted({contact.get("name") or "", marketplace.shop_name(contact.get("name") or "")}, key=len, reverse=True):
+            if len(n) > 2:
+                text = re.sub(re.escape(n), " ", text, flags=re.I)
     if kind == "initial" and FAKE_THREAD_RE.search(subject):
         add("error", "Subject starts with Re:/Fwd: on a first email — deceptive under the IT Act and CCPA guidelines.")
     if is_market:

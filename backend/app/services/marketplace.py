@@ -107,8 +107,9 @@ PROFESSIONAL_CATEGORIES: dict[str, Category] = {
 CATEGORY_WORDS = {
     "FD": ["food", "foods", "wellness food", "snacks", "fd"],
     "SUP": ["supplement", "supplements", "nutraceutical", "nutraceuticals", "vitamins", "sup"],
-    "PRO": ["protein", "sports nutrition", "pro"],
-    "DV": ["device", "devices", "health device", "health devices", "wearable", "dv"],
+    # The brand sheet writes PR and DEV.
+    "PRO": ["protein", "sports nutrition", "pro", "pr"],
+    "DV": ["device", "devices", "health device", "health devices", "wearable", "dv", "dev"],
     "NT": ["nutritionist", "dietitian", "dietician", "nutrition", "nt"],
     "GP": ["gp", "general physician", "family physician", "general practitioner"],
     "SPC": ["specialist", "clinic", "specialist clinic", "spc"],
@@ -235,3 +236,40 @@ def clean_description(text: str, max_len: int = 160) -> str:
 
 def choose(items: list[str], seed: str, salt: str = "") -> str:
     return specialties.pick(items, seed, salt)
+
+
+SPEND_RE = re.compile(r"^\s*(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?)\s*(?:(?:-|–|—|to)\s*(?:₹|rs\.?|inr)?\s*(\d[\d,]*(?:\.\d+)?))?\s*(?:lakhs?|lacs?|l)?\s*$", re.I)
+
+
+def spend_range(spend: str) -> tuple[float, float] | None:
+    """The sheet's "Spend last quarter (₹ lakhs)" cell as (low, high): "18-25" -> (18, 25), "20" -> (20, 20).
+    None when it's blank or not a figure, since the brand guide never lets a spend figure be invented."""
+    m = SPEND_RE.match(spend or "")
+    if not m:
+        return None
+    low, high = float(m.group(1).replace(",", "")), float((m.group(2) or m.group(1)).replace(",", ""))
+    return (min(low, high), max(low, high))
+
+
+def lakhs(n: float) -> str:
+    """18.0 -> '18', 1.5 -> '1.5', 2000 -> '2,000'."""
+    return f"{int(n):,}" if n == int(n) else f"{n:g}"
+
+
+CITY_SUFFIX_RE = re.compile(r"[\s,-]+(mumbai|delhi|delhi ncr|ncr|new delhi|bengaluru|bangalore|blr|hyderabad|hyd|pune|chennai|kolkata)\s*$", re.I)
+WEB_SUFFIX_RE = re.compile(r"(\.|\s)(in|com|co\.in)\s*$", re.I)
+
+
+def shop_name(name: str) -> str:
+    """'Natures Basket - Sultan Palya' -> 'Natures Basket', 'Fix The Glytch / GLYTCH' -> 'Fix The Glytch',
+    'Fast&Up Mumbai' -> 'Fast&Up', 'Primal Nutrition.In' -> 'Primal Nutrition'. Brackets are dropped too."""
+    n = re.sub(r"\s+", " ", re.sub(r"\([^)]*\)", " ", name or "")).strip()
+    for sep in (" / ", " | ", " - ", " – ", " — "):
+        head = n.split(sep)[0].strip()
+        if len(head) >= 2:
+            n = head
+    for rx in (CITY_SUFFIX_RE, WEB_SUFFIX_RE):
+        cut = rx.sub("", n).strip(" ,.-")
+        if len(cut) >= 2:
+            n = cut
+    return n

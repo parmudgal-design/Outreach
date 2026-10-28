@@ -11,3 +11,6 @@ __pycache__/
 
 # Deployment secrets (OUTREACH_SECRET_KEY etc.) never go in git.
 .env
+
+# Archives of this folder include the brand sheets (contact data): never in git.
+*.zip

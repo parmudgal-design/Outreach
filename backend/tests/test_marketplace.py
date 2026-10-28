@@ -1,20 +1,22 @@
 """Marketplace pitch: brand and professional contacts, greetings, templates, prompts and checks.
 All contacts are fake (backend/tests/fixtures/)."""
-import copy
 import re
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from backend.app.services import drafting, greeting, importer, marketplace, prompts, qa
+from backend.app.services import drafting, greeting, importer, marketplace, prompts, qa, spend, templates
 from backend.app.services.drafting import TemplateDrafter
 from backend.app.settings_store import DEFAULTS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SENDER = {"name": "Ananya Gupta", "role": "Founder, Dr.Tracker", "phone": "+91 98765 43210", "tone": "warm",
           "address": "HSR Layout, Bengaluru 560102"}
-MARKET = DEFAULTS["marketplace"]
+# The brand guide (brand_outreach_agent.md) won't write without a call link.
+MARKET = {**DEFAULTS["marketplace"], "meeting_link": "https://cal.example/drtracker"}
+# ...or without spend figures, which the sample sheet doesn't have.
+SPEND = {"spend": "18-25", "spend_source": "ad library estimate"}
 
 
 def load(name: str) -> list[dict]:
@@ -23,14 +25,16 @@ def load(name: str) -> list[dict]:
     return contacts
 
 
-CONTACTS = {c["category"]: c for c in load("marketplace_contacts.csv")}
+CONTACTS = {c["category"]: ({**c, **SPEND} if c["type"] == "brand" else c) for c in load("marketplace_contacts.csv")}
+# The sample's care@ inbox is one the brand guide says not to write to (tested on its own below).
+CONTACTS["SUP"] = {**CONTACTS["SUP"], "email": "partners@sunleaf.test"}
 
-# category -> expected greeting line
+# category -> expected greeting line (brands: the brand guide's "Hi {Brand} team,")
 GREETINGS = {
-    "FD": "Hello Crunchwell Foods team,",
-    "SUP": "Hello SUNLEAF team,",
-    "PRO": "Hello LiftFuel Nutrition team,",
-    "DV": "Hello VitalSense Devices team,",
+    "FD": "Hi Crunchwell Foods team,",
+    "SUP": "Hi SUNLEAF team,",
+    "PRO": "Hi LiftFuel Nutrition team,",
+    "DV": "Hi VitalSense Devices team,",
     "NT": "Dear Meenal,",
     "GP": "Dear Dr. Menon,",
     "SPC": "Hello Kenia Eye Hospital team,",
@@ -94,7 +98,8 @@ def test_greeting(name, ctype, expected):
 
 def test_dr_sports_never_appears_for_any_type():
     for ctype in ("doctor", "hospital", "company", "partner", "brand", "professional"):
-        contact = {"name": "Total Health Physio & Sports", "type": ctype, "email": "info@x.test", "category": "PT"}
+        contact = {"name": "Total Health Physio & Sports", "type": ctype, "email": "info@x.test", "category": "PT", **SPEND,
+                   "_write_anyway": True}  # a physio practice listed as a brand is skipped otherwise
         initial = TemplateDrafter().initial(contact, SENDER, DEFAULTS["pitches"], MARKET)
         followup = TemplateDrafter().followup(contact, SENDER, DEFAULTS["pitches"], {"subject": "s", "message_id": None}, 1, MARKET)
         for body in (initial.body, followup.body):
@@ -122,14 +127,27 @@ def test_template_draft_per_category(cat):
     d, issues = draft(contact)
     text = d.subject + "\n" + d.body
     assert d.body.splitlines()[0] == GREETINGS[cat]
-    assert contact["description"].lower()[:30] in d.body.lower()                 # description used
-    assert not qa.PLACEHOLDER_RE.search(text) and not qa.ARTEFACT_RE.search(text)  # no placeholders
+    assert not qa.PLACEHOLDER_RE.search(templates.MARKER_RE.sub("", text))
+    assert not qa.ARTEFACT_RE.search(qa._without_guide_wording(text, contact))   # the guide itself says "your product"
     assert not qa.MONITORING_RE.search(text)                                      # not the old doctor pitch
-    assert not qa.PRICING_RE.search(text)                                         # trial is off
+    assert not qa.PRICING_RE.search(qa.SHOPPER_PRICE_RE.sub("", qa._without_spend(text, contact.get("spend"))))  # trial is off
     if cat in ("GP", "SPC"):
         assert not qa.REFERRAL_RE.search(text)
-    assert 120 <= len(d.body.split()) <= 170, len(d.body.split())
-    assert MARKET["value_prop_brands" if contact["type"] == "brand" else "value_prop_professionals"] in d.body
+    if contact["type"] == "brand":
+        # The brand guide's touch 1: the bill subject, the estimated spend, the 3 steps, then the screenshots.
+        assert d.subject == f"{GREETINGS[cat][3:-6]}, your marketing bill for ₹25 lakhs is ready"
+        assert "your estimated range of spend on marketing was ₹18–25 lakhs" in d.body
+        paras = d.body.split("\n\n")
+        # The screenshots go inside the body: 1 after the hook, 2 and 3 after "But we can take your product…".
+        assert "dance with it online" in paras[2] and paras[3] == "[SCREENSHOT_1]"
+        assert paras[4].startswith("But we can take your product") and paras[5:7] == ["[SCREENSHOT_2]", "[SCREENSHOT_3]"]
+        assert "1. Ask" not in d.body and "attached" not in d.body
+        assert d.body.endswith("https://cal.example/drtracker\n\nAnanya Gupta\nFounder, Dr. Tracker Bharat")
+        assert "Dr.Tracker" not in text
+    else:
+        assert contact["description"].lower()[:30] in d.body.lower()             # description used
+        assert 120 <= len(d.body.split()) <= 170, len(d.body.split())
+        assert MARKET["value_prop_professionals"] in d.body
     assert not issues, issues                                                     # QA passes cleanly
 
 
@@ -137,7 +155,9 @@ def test_template_draft_per_category(cat):
 def test_template_without_description_still_reads_naturally(cat):
     contact = {**CONTACTS[cat], "description": ""}
     d, issues = draft(contact)
-    assert "I was reading about" not in d.body and "your product" not in d.body
+    assert "I was reading about" not in d.body
+    if contact["type"] != "brand":  # the brand guide's own template says "your product"
+        assert "your product" not in d.body
     assert not qa.has_errors(issues), issues
 
 
@@ -154,16 +174,20 @@ def test_trial_text_only_when_switched_on():
         off_draft, _ = draft(CONTACTS[cat])
         assert MARKET["trial_text"] not in off_draft.body
         d, issues = draft(CONTACTS[cat], on)
-        assert MARKET["trial_text"] in d.body
+        # Brands get only the brand guide's wording, which has no trial.
+        assert (MARKET["trial_text"] in d.body) == (CONTACTS[cat]["type"] != "brand")
         assert not qa.has_errors(issues), (cat, issues)
 
 
 def test_value_prop_and_signature_come_from_settings():
-    custom = {**MARKET, "value_prop_brands": "Custom brand wording from the founder.", "signature_name": "Rohan Mehta",
-              "signature_role": "Partnerships, Dr.Tracker"}
-    d, _ = draft(CONTACTS["FD"], custom)
-    assert "Custom brand wording from the founder." in d.body
+    custom = {**MARKET, "value_prop_professionals": "Custom wording from the founder.", "signature_name": "Rohan Mehta",
+              "signature_role": "Partnerships, Dr.Tracker", "meeting_link": "https://cal.example/drtracker"}
+    d, _ = draft(CONTACTS["NT"], custom)
+    assert "Custom wording from the founder." in d.body
     assert "Rohan Mehta\nPartnerships, Dr.Tracker" in d.body and "Ananya Gupta" not in d.body
+    d, issues = draft(CONTACTS["FD"], custom)  # brands: the guide's sign-off, after the call link
+    assert d.body.endswith("https://cal.example/drtracker\n\nRohan Mehta\nPartnerships, Dr. Tracker Bharat")
+    assert not qa.has_errors(issues), issues
 
 
 # --- Checks -----------------------------------------------------------------------
@@ -240,10 +264,10 @@ def test_claude_drafter_sends_marketplace_system_prompt():
 
     drafter = drafting.ClaudeDrafter("sk-test")
     drafter.client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)))
-    d = drafter.initial(CONTACTS["FD"], SENDER, DEFAULTS["pitches"], MARKET)
+    d = drafter.initial(CONTACTS["NT"], SENDER, DEFAULTS["pitches"], MARKET)
     assert d.subject == "Food that fits the plan"
-    assert seen["system"] == prompts.MARKETPLACE_SYSTEM
-    assert "Hello Crunchwell Foods team," in seen["messages"][0]["content"]
+    assert seen["system"] == prompts.MARKETPLACE_SYSTEM  # professionals: no guide yet
+    assert "Dear Meenal," in seen["messages"][0]["content"]
 
 
 # --- Original types: no "your product" / "your organisation" fallbacks --------------------
@@ -278,10 +302,14 @@ def test_import_draft_and_review_over_api(configured):
     for _ in range(3):
         worker.draft_stage()
     review = c.get("/api/review").json()
-    assert len(review) == 9
+    # The sample sheet has no spend figures: they're estimated. SUNLEAF's care@ inbox is skipped (the guide's rule).
+    assert len(review) == 8
+    brands = {x["email"]: x for x in c.get("/api/contacts").json() if x["type"] == "brand"}
+    assert "support or complaints inbox" in brands["care@sunleaf.test"]["last_error"]
+    assert all(x["spend_source"].startswith(spend.SOURCE_PREFIX) for e, x in brands.items() if e != "care@sunleaf.test")
     for m in review:
         assert m["drafted_by"] == "template"
-        assert MARKET["trial_text"] in m["body"]
+        assert (MARKET["trial_text"] in m["body"]) == (m["contact_type"] != "brand")
         assert not qa.has_errors(m["qa"]), (m["contact_name"], m["qa"])
     meta = c.get("/api/meta").json()
     assert {x["key"] for x in meta["categories"]["brand"]} == {"FD", "SUP", "PRO", "DV"}

@@ -1,10 +1,39 @@
-"""Process-level configuration. Everything a user sets day to day (API keys,
-sender details, campaign pacing) lives in the database and is edited from the
-UI; only paths and bind options come from the environment."""
+"""Process-level configuration. Everything a user sets day to day (sender
+details, campaign pacing) lives in the database and is edited from the UI.
+Paths, bind options and, optionally, the API key and mailbox come from the
+environment or the `.env` file in the repository root (see settings_store.ENV_FIELDS)."""
 import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_env_file(path: Path) -> None:
+    """Read KEY=value lines into os.environ. Variables already set in the real environment win.
+    Supports comments, blank lines, `export KEY=value` and single or double quotes."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        if key:
+            os.environ.setdefault(key, value)
+
+
+# OUTREACH_ENV_FILE picks another file; set it to an empty string to read none (the tests do).
+_env_file = os.environ.get("OUTREACH_ENV_FILE", str(ROOT / ".env"))
+if _env_file:
+    load_env_file(Path(_env_file))
 DATA_DIR = Path(os.environ.get("OUTREACH_DATA_DIR", ROOT / "data"))
 DB_PATH = Path(os.environ.get("OUTREACH_DB", DATA_DIR / "outreach.db"))
 FRONTEND_DIR = ROOT / "frontend"

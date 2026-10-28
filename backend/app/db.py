@@ -170,6 +170,12 @@ MIGRATIONS = [
     ("inbound", "reply_attempts", "INTEGER NOT NULL DEFAULT 0"),
     ("inbound", "alerted_at", "REAL"),
     ("messages", "inbound_id", "INTEGER"),                      # the reply a 'reply' message answers
+    # Every data point in the brand / professional sheets (see importer.py).
+    ("contacts", "socials", "TEXT NOT NULL DEFAULT ''"),        # Instagram / LinkedIn / … links, read with the website
+    ("contacts", "pricing", "TEXT NOT NULL DEFAULT ''"),        # kept for the team; never given to the drafter
+    ("contacts", "spend", "TEXT NOT NULL DEFAULT ''"),          # "Spend last quarter (₹ lakhs)", as written in the sheet
+    ("contacts", "spend_source", "TEXT NOT NULL DEFAULT ''"),
+    ("contacts", "extra", "TEXT NOT NULL DEFAULT ''"),          # JSON {header: value} for columns with no field of their own
 ]
 
 

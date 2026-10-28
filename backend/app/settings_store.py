@@ -5,6 +5,7 @@ reads return a masked hint, and an update that leaves a secret blank keeps the
 stored value.
 """
 import copy
+import os
 
 from . import db, secretbox
 
@@ -49,6 +50,9 @@ DEFAULTS: dict[str, dict] = {
         "trial_text": "We're offering early partners a free first month to try it.",
         "signature_name": "",       # blank = the sender name (Setup → Sender)
         "signature_role": "",       # blank = the sender role
+        # Ends the ask in emails written to a team guide (the call link in brand_outreach_agent.md).
+        # Blank: the ask ends with a question instead.
+        "meeting_link": "",
     },
     "import": {
         # Rows whose Name or Notes match any of these are never imported: crisis and government
@@ -92,7 +96,7 @@ DEFAULTS: dict[str, dict] = {
         "running": False,
         "require_approval": True,   # a human approves each draft before it can be sent
         "auto_draft": True,         # worker drafts new contacts in the background
-        "daily_cap": 20,
+        "daily_cap": 0,            # 0 = no daily limit
         "min_delay_seconds": 90,
         "jitter_seconds": 60,
         "ist_window": True,
@@ -105,6 +109,57 @@ DEFAULTS: dict[str, dict] = {
         "inbox_poll_minutes": 5,
     },
 }
+
+
+# Settings that can come from the environment / .env instead of the UI. A non-empty variable wins
+# over the value saved in the database; the Connections page shows those fields as "set in .env".
+# Secrets set this way are never written to the database.
+ENV_FIELDS: dict[str, tuple[str, str, type]] = {
+    "ANTHROPIC_API_KEY": ("ai", "anthropic_api_key", str),
+    "ANTHROPIC_MODEL": ("ai", "model", str),
+    "EMAIL_MODE": ("email", "mode", str),
+    "SMTP_HOST": ("email", "smtp_host", str),
+    "SMTP_PORT": ("email", "smtp_port", int),
+    "SMTP_SECURITY": ("email", "smtp_security", str),
+    "SMTP_USERNAME": ("email", "smtp_username", str),
+    "SMTP_PASSWORD": ("email", "smtp_password", str),
+    "FROM_EMAIL": ("email", "from_email", str),
+    "FROM_NAME": ("email", "from_name", str),
+    "REPLY_TO": ("email", "reply_to", str),
+    "IMAP_ENABLED": ("email", "imap_enabled", bool),
+    "IMAP_HOST": ("email", "imap_host", str),
+    "IMAP_PORT": ("email", "imap_port", int),
+    "IMAP_USERNAME": ("email", "imap_username", str),
+    "IMAP_PASSWORD": ("email", "imap_password", str),
+    "IMAP_FOLDER": ("email", "imap_folder", str),
+    "ALERT_TO": ("email", "alert_to", str),
+}
+_CHOICES = {("email", "mode"): {"dry_run", "smtp"}, ("email", "smtp_security"): {"ssl", "starttls", "none"}}
+
+
+def env_overrides(section: str) -> dict:
+    """The settings for `section` that the environment sets. Raises ValueError on a malformed value."""
+    out = {}
+    for var, (sec, field, kind) in ENV_FIELDS.items():
+        raw = os.environ.get(var, "").strip()
+        if sec != section or not raw:
+            continue
+        if kind is int:
+            try:
+                value = int(raw)
+            except ValueError:
+                raise ValueError(f"{var} in .env must be a number, not {raw!r}") from None
+        elif kind is bool:
+            if raw.lower() not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
+                raise ValueError(f"{var} in .env must be true or false, not {raw!r}")
+            value = raw.lower() in {"1", "true", "yes", "on"}
+        else:
+            value = raw
+        allowed = _CHOICES.get((sec, field))
+        if allowed and value not in allowed:
+            raise ValueError(f"{var} in .env must be one of {', '.join(sorted(allowed))}, not {raw!r}")
+        out[field] = value
+    return out
 
 
 def _merge(defaults: dict, stored: dict) -> dict:
@@ -129,6 +184,13 @@ def get_section(section: str, conn=None) -> dict:
             if t in merged and isinstance(v, dict):
                 merged[t].update(v)
         return merged
+    return {**_merge(DEFAULTS[section], stored), **env_overrides(section)}
+
+
+def _get_stored(section: str, conn) -> dict:
+    """Defaults + database values, without the environment (what the UI saves into)."""
+    stored = db.get_json(conn, f"section:{section}", {})
+    stored = {k: (secretbox.decrypt(v) if (section, k) in SECRET_FIELDS else v) for k, v in (stored or {}).items()}
     return _merge(DEFAULTS[section], stored)
 
 
@@ -150,6 +212,9 @@ def public_view(conn=None) -> dict:
         out[section][field] = ""
         out[section][f"{field}_set"] = bool(value)
         out[section][f"{field}_hint"] = mask(value)
+    for section in DEFAULTS:
+        if section != "pitches":
+            out[section]["from_env"] = sorted(env_overrides(section))
     return out
 
 
@@ -159,7 +224,8 @@ def update_section(section: str, patch: dict, conn=None) -> dict:
     if conn is None:
         with db.connect() as c:
             return update_section(section, patch, c)
-    current = get_section(section, conn)
+    # Save on top of the database values, so a value from .env is never copied into the database.
+    current = get_section(section, conn) if section == "pitches" else _get_stored(section, conn)
     for key, value in patch.items():
         if key.endswith("_set") or key.endswith("_hint"):
             continue
@@ -174,7 +240,7 @@ def update_section(section: str, patch: dict, conn=None) -> dict:
         if section_name == section and patch.get(f"clear_{field}"):
             current[field] = ""
     db.set_json(conn, f"section:{section}", _sealed(section, current))
-    return current
+    return {**current, **env_overrides(section)}
 
 
 def _sealed(section: str, values: dict) -> dict:
@@ -203,11 +269,3 @@ def migrate_secrets(conn) -> dict:
     if migrated:
         db.log_event("security", f"Encrypted {migrated} stored secret(s) with OUTREACH_SECRET_KEY", conn=conn)
     return {"encrypted": encrypted + migrated, "plaintext": plaintext - migrated, "migrated": migrated}
-
-
-def has_plaintext_secrets(conn) -> bool:
-    for section, field in SECRET_FIELDS:
-        value = (db.get_json(conn, f"section:{section}", {}) or {}).get(field)
-        if value and not secretbox.is_encrypted(value):
-            return True
-    return False

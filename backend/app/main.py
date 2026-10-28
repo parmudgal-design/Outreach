@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, config, db, worker
+from . import auth, config, db, settings_store, worker
 from .api import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -20,6 +20,9 @@ log = logging.getLogger("outreach")
 async def lifespan(app: FastAPI):
     db.init()
     auth.startup_checks()  # raises (and uvicorn exits) on an unsafe configuration
+    for section in ("ai", "email"):
+        if fields := settings_store.env_overrides(section):  # raises on a malformed value in .env
+            log.info("Using %s from the environment / .env: %s", section, ", ".join(sorted(fields)))
     with db.connect() as conn:
         for w in auth.warnings(conn):
             log.warning(w)

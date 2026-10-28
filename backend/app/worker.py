@@ -182,7 +182,9 @@ def draft_stage(drafter=None) -> int:
         try:
             outreach.draft(contact_id, kind, drafter=drafter)
             done += 1
-        except drafting.DraftError:
+        except drafting.DraftError as e:
+            if e.skip:
+                continue  # this row only: the guide says not to email it
             # Rate limits and outages hit every call, and so do config problems (bad key, model):
             # back off until the next tick rather than hammering the API.
             break
@@ -201,7 +203,7 @@ def send_stage(transport=None, now: float | None = None) -> dict:
             return {"skipped": "paused"}
         if not schedule.in_window(camp, now):
             return {"skipped": "outside sending window"}
-        if outreach.sent_since(conn, schedule.start_of_ist_day(now)) >= int(camp["daily_cap"]):
+        if int(camp["daily_cap"]) and outreach.sent_since(conn, schedule.start_of_ist_day(now)) >= int(camp["daily_cap"]):
             return {"skipped": "daily cap reached"}
         if (rt.get("next_send_at") or 0) > now:
             return {"skipped": "pacing"}

@@ -5,10 +5,14 @@ every transactional provider's SMTP relay (SES, SendGrid, Postmark, Brevo…),
 so moving to a proper sending domain later is a settings change, not a code
 change. Dry-run mode builds the exact same message but only records it.
 """
+import html
+import re
 import smtplib
 import ssl
 from email.message import EmailMessage
 from email.utils import formataddr, formatdate, make_msgid
+
+from . import templates
 
 
 class SendError(Exception):
@@ -28,6 +32,7 @@ def build_message(
     body: str,
     reply_to: str = "",
     in_reply_to: str | None = None,
+    images: "list[templates.Banner] | None" = None,
 ) -> EmailMessage:
     msg = EmailMessage()
     domain = from_email.split("@")[-1] if "@" in from_email else "localhost"
@@ -44,8 +49,41 @@ def build_message(
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
         msg["References"] = in_reply_to
-    msg.set_content(body)
+    if not images:
+        msg.set_content(body)
+        return msg
+    # With images: plain text for clients that don't show HTML, and HTML with the images inline (cid:), in
+    # order where the marker is, so they show without "load remote images" and nothing is fetched when it's opened.
+    parts = templates.segments(body, len(images))
+    msg.set_content("\n\n".join(p.strip() for p in parts if isinstance(p, str)))
+    cids = [make_msgid(domain=domain) for _ in images]
+    msg.add_alternative(_html(parts, [(c[1:-1], img) for c, img in zip(cids, images)]), subtype="html")
+    for cid, img in zip(cids, images):
+        # "inline", so mail clients show it in the body and don't list it as an attachment too.
+        msg.get_payload()[1].add_related(img.data, maintype="image", subtype=img.subtype, cid=cid,
+                                         disposition="inline", filename=img.filename)
     return msg
+
+
+def _paragraphs(text: str) -> str:
+    out = []
+    for para in re.split(r"\n\s*\n", text.strip()):
+        if para.strip():
+            lines = [html.escape(line) for line in para.strip().splitlines()]
+            out.append('<p style="margin:0 0 14px">' + "<br>\n".join(lines) + "</p>")
+    return "\n".join(out)
+
+
+def _html(parts: list, images: "list[tuple[str, templates.Banner]]") -> str:
+    # Shown at up to 600px wide; each image itself is EMAIL_WIDTH for sharp text on high-density screens.
+    def img(i: int) -> str:
+        cid, b = images[i]
+        return (f'<p style="margin:0 0 14px"><img src="cid:{cid}" alt="{html.escape(b.alt)}" width="600" '
+                'style="display:block;width:100%;max-width:600px;height:auto;border:0"></p>')
+    inner = "\n".join(img(p) if isinstance(p, int) else _paragraphs(p) for p in parts)
+    return ('<!doctype html><html><body style="margin:0;padding:0">'
+            '<div style="max-width:600px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#1d2433">\n'
+            f"{inner}\n</div></body></html>")
 
 
 class DryRunTransport:

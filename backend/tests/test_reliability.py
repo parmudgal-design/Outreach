@@ -167,3 +167,10 @@ def test_send_now_losing_the_race_leaves_the_draft_unapproved(configured, monkey
     assert r.status_code == 429 and "daily cap" in r.json()["detail"]
     with db.connect() as conn:
         assert outreach.get_message(conn, mid)["status"] == "draft"
+
+
+def test_no_daily_limit_by_default(configured):
+    c = configured
+    assert c.get("/api/settings").json()["campaign"]["daily_cap"] == 0
+    for mid in _approved(c, 3):
+        assert outreach.send(mid)["status"] == "sent"

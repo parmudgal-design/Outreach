@@ -17,7 +17,7 @@ This is a sound setup. Mail sent through Google Workspace from an `@dr-tracker.c
 
 ## 2. Sending up to about 20 a day: use a Workspace mailbox
 
-At the app's default of 20 emails a day, send straight from Workspace.
+There's no daily limit by default; at around 20 emails a day, send straight from Workspace.
 
 1. Create a dedicated mailbox, for example `partners@dr-tracker.com`. Don't use the founder's personal mailbox; keep its reputation and inbox separate.
 2. Turn on 2-Step Verification for that mailbox, then create an **App Password** (Google Account → Security → App passwords).
@@ -87,7 +87,7 @@ Bounces from SES go to the MAIL FROM domain, not the inbox. Also watch the SES b
 
 ## 7. Warm-up
 
-A new sending domain has no reputation. Increase volume slowly. Change the pace under **Campaign** (`daily_cap` = emails per day, `min_delay_seconds` = minimum gap between sends).
+A new sending domain has no reputation. Increase volume slowly. Change the pace under **Campaign** (`daily_cap` = emails per day, 0 = no limit, `min_delay_seconds` = minimum gap between sends).
 
 | Week | Emails per day |
 |---|---|

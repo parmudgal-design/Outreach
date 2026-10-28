@@ -201,3 +201,51 @@ def test_cli_create_admin_and_gen_key(app_client, monkeypatch, capsys):
 def test_pending_uploads_are_not_kept_in_memory():
     from backend.app import api
     assert not hasattr(api, "_pending_imports")  # restart survival is tested in test_partner_sheet
+
+
+def test_env_file_parsing(tmp_path, monkeypatch):
+    from backend.app import config
+
+    env = tmp_path / ".env"
+    env.write_text(
+        "# comment\n\nexport SMTP_HOST=smtp.zoho.in\nSMTP_PASSWORD='abcd efgh #1'\n"
+        'FROM_NAME="Ananya Gupta"\nALERT_TO=me@example.com  # trailing note\nSMTP_USERNAME=from-file\n'
+    )
+    environ = {"SMTP_USERNAME": "from-shell"}  # the real environment wins over the file
+    monkeypatch.setattr(config.os, "environ", environ)
+    config.load_env_file(env)
+    assert environ == {"SMTP_HOST": "smtp.zoho.in", "SMTP_PASSWORD": "abcd efgh #1", "FROM_NAME": "Ananya Gupta",
+                       "ALERT_TO": "me@example.com", "SMTP_USERNAME": "from-shell"}
+    config.load_env_file(tmp_path / "missing.env")  # no file is fine
+
+
+def test_env_values_win_and_stay_out_of_the_database(app_client, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-api-fromenv5678")
+    monkeypatch.setenv("SMTP_PASSWORD", "env-app-password")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("IMAP_ENABLED", "true")
+    monkeypatch.setenv("EMAIL_MODE", "smtp")
+    assert settings_store.get_section("ai")["anthropic_api_key"] == "sk-ant-api-fromenv5678"
+    e = settings_store.get_section("email")
+    assert (e["smtp_password"], e["smtp_port"], e["imap_enabled"], e["mode"]) == ("env-app-password", 587, True, "smtp")
+
+    # Saving from the UI doesn't copy the env values into the database, and env still wins.
+    app_client.put("/api/settings/ai", json={"anthropic_api_key": "sk-ant-api-fromui0000", "model": "claude-sonnet-5-5"})
+    app_client.put("/api/settings/email", json={"smtp_host": "smtp.zoho.in"})
+    assert raw_secret("email", "smtp_password") in (None, "")
+    assert settings_store.get_section("ai")["anthropic_api_key"] == "sk-ant-api-fromenv5678"
+    view = app_client.get("/api/settings").json()
+    assert view["ai"]["anthropic_api_key"] == "" and view["ai"]["anthropic_api_key_hint"].endswith("5678")
+    assert view["ai"]["from_env"] == ["anthropic_api_key"]
+    assert set(view["email"]["from_env"]) == {"smtp_password", "smtp_port", "imap_enabled", "mode"}
+
+    # Without the env var, the UI-saved key is used.
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    assert settings_store.get_section("ai")["anthropic_api_key"] == "sk-ant-api-fromui0000"
+
+
+@pytest.mark.parametrize("var,value", [("SMTP_PORT", "abc"), ("IMAP_ENABLED", "maybe"), ("EMAIL_MODE", "live"), ("SMTP_SECURITY", "tls")])
+def test_malformed_env_value_is_reported(var, value, monkeypatch):
+    monkeypatch.setenv(var, value)
+    with pytest.raises(ValueError, match=var):
+        settings_store.env_overrides("email")

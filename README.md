@@ -11,11 +11,19 @@ An email outreach system for bringing health brands (wellness food, supplements,
 PORT=8765 ./run.sh       # pick another port if 8000 is taken
 ```
 
+To keep the API key and mailbox in a file instead of typing them into the app, copy the template and fill it in:
+
+```bash
+cp deploy/env.example .env && chmod 600 .env   # then edit .env and restart ./run.sh
+```
+
+The app reads `.env` on start: `ANTHROPIC_API_KEY`, `EMAIL_MODE`, `SMTP_*`, `IMAP_*`, `FROM_EMAIL`, `ALERT_TO` and the rest are listed in the template. A value in `.env` wins over the Connections page, which shows that field as locked. Leave a value empty to manage it in the app instead. Variables already set in your shell win over the file. `.env` is ignored by git.
+
 Then open the page and follow the **Getting started** checklist on the Dashboard:
 
 1. **Setup:** sender name, role, phone and business address (required for the compliance footer), plus a pitch for each audience. The pitches are optional; sensible defaults are used.
-2. **Contacts → Upload spreadsheet:** CSV or `.xlsx`. Columns are matched automatically (you can fix the mapping), duplicates and opted-out emails are skipped, and each doctor's specialty is detected. For brands and professionals use `Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`, plus an optional `Website` column (see `backend/tests/fixtures/marketplace_contacts.csv`), or download the template from the Contacts page.
-3. **Connections:** paste an Anthropic API key for AI-written drafts, an email account (for Gmail, an App Password) to send for real, and an address for reply alerts. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run). The key and mailbox can be added at any time; nothing else changes.
+2. **Contacts → Upload spreadsheet:** first choose who it's for: **Brands**, **Professionals** or **Mixed** (each row's Type column decides, as in the founder's workbook). That choice sets every row's type and which email template it gets. CSV or `.xlsx`. Every tab with a recognisable header row is read (one tab per city is fine, and you can untick a test tab), and columns are matched automatically (you can fix the mapping), duplicates and opted-out emails are skipped, and each doctor's specialty is detected. For brands and professionals use `Full Name, Email, Speciality, Hospital / Clinic, Product, City, Category, Remarks`, plus an optional `Website` column (see `backend/tests/fixtures/marketplace_contacts.csv`), or download the template from the Contacts page.
+3. **Connections** (or `.env`, above): paste an Anthropic API key for AI-written drafts, an email account (for Gmail, an App Password) to send for real, and an address for reply alerts. Without keys everything still works: drafts come from built-in templates, and "sent" emails are only recorded in the outbox (dry run). The key and mailbox can be added at any time; nothing else changes.
 4. **Review:** read and edit the drafts, then approve. **Campaign → Start.**
 
 Going live: work through [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md). Hosting (Docker + Caddy for HTTPS, backups, restore) is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), and sending-domain setup (SPF, DKIM, DMARC, warm-up) in [docs/DELIVERABILITY.md](docs/DELIVERABILITY.md).
@@ -23,14 +31,14 @@ Going live: work through [docs/GO_LIVE_CHECKLIST.md](docs/GO_LIVE_CHECKLIST.md).
 ## Security
 
 - **Logins:** each person gets their own account (scrypt-hashed password, server-side session cookie). Create the first one under **Setup → Users** or with `python -m backend.app.cli create-admin --email you@… --name "…"`. Once any account exists, signing in is required. With no accounts the app is open only to requests from this computer. The Activity log records who approved and who sent each email.
-- **Secrets at rest:** set `OUTREACH_SECRET_KEY` (generate with `python -m backend.app.cli gen-key`) and the API key and mail passwords are encrypted in the database. Existing plaintext values are encrypted at startup. Without the key they stay plaintext and the sidebar warns you. The app refuses to start if encrypted values exist and the key is missing or wrong.
+- **Secrets at rest:** set `OUTREACH_SECRET_KEY` (generate with `python -m backend.app.cli gen-key`) and the API key and mail passwords saved from the Connections page are encrypted in the database. Values from `.env` are never written to the database; protect the file itself (`chmod 600 .env`). Existing plaintext values are encrypted at startup. Without the key they stay plaintext and the sidebar warns you. The app refuses to start if encrypted values exist and the key is missing or wrong.
 - **Exposed hosts:** on any `HOST` other than localhost the app refuses to start without at least one user and without `OUTREACH_SECRET_KEY`.
 - **Backups:** `python scripts/backup.py` uses SQLite's online backup API, keeps 14 daily copies, and is safe while the app runs. Schedule and restore steps: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## How it works
 
 ```
-spreadsheet ─► contacts ─► website read (brands/professionals) ─► draft (Claude or template)
+spreadsheet (brands | professionals) ─► contacts ─► website + socials read ─► draft (that audience's template)
                                                       │
                                          pre-send check (quality + Indian rules)
                                                       │
@@ -58,7 +66,8 @@ spreadsheet ─► contacts ─► website read (brands/professionals) ─► dr
 | Pre-send checks | `backend/app/services/qa.py` |
 | SMTP sending and IMAP reply/bounce detection | `backend/app/services/mailer.py`, `inbox.py` |
 | Spreadsheet import | `backend/app/services/importer.py` |
-| Website research (reads a partner's homepage before drafting) | `backend/app/services/research.py` |
+| Research (reads a partner's website pages and social profiles before drafting) | `backend/app/services/research.py` |
+| Email templates per audience (writing guide + banner) | `templates/<audience>/`, `backend/app/services/templates.py` |
 | Reply alerts and inbox-failure alerts | `backend/app/services/alerts.py` |
 | Storage (SQLite, `data/outreach.db`, owner-only permissions) | `backend/app/db.py` |
 | The founder's partner workbook: import, re-import, Status write-back | `backend/app/services/partner_sheet.py` |
@@ -89,9 +98,18 @@ Contact types `brand` and `professional` (`b`/`p` in the type column) get a diff
 - **Wording:** edit it under **Setup → Marketplace pitch**. That covers the value propositions, the trial switch and trial text, and the signature.
 - **Checks:** these block sending: placeholders, broken greetings, any price, fee or trial wording while the trial switch is off, and commission, referral or per-booking language to a GP or specialist/clinic. These are warnings: the old monitoring pitch, more than 200 words, and a `CHECK:` note from the sheet.
 
-### Website research
+### Templates for brands and professionals
 
-Before Claude writes a brand's or professional's first email, the app reads their homepage: the `Website` column, or failing that their email domain (never Gmail, Yahoo, Rediff and other free-mail domains). It keeps the title, description, headings and a little body text, about 2,500 characters, and passes that to Claude fenced off as their own marketing. Claude may use it only to be specific about what they sell, never to repeat their claims, prices or awards, and the pre-send check still blocks superlatives and health claims. Error pages, bot checks and JavaScript-only sites are skipped, and drafting simply goes ahead without the excerpt. Only public addresses are fetched. The excerpt is kept for 30 days and shown on the contact, with a **Read website again** button. Turn it off under **Connections → Claude**. Template drafts (no key) don't use it.
+Each audience has its own template: a writing guide Claude follows, and the images placed in the first email's body.
+
+- **Brands** use only `brand_outreach_agent.md` (the "Marketing Bill" template, its follow-up touches 2 and 3, and its stop rules) and the three screenshots at the repo root (`Step 1 – Asks in chat@2x.png`, `Step 2 – Sees it first@2x.png`, `Step 3 – Buys with a code@2x.png`). Those three go into every first email in that order, inline below the 3-step list, at up to 600 px wide; follow-ups go in the same thread as plain text. Claude gets the guide's inputs from the row (spend low/high from `Spend last quarter (₹ lakhs)`, e.g. `18-25`, `Spend source`, the hero product, the call link from **Setup → Meeting link**, the sender's name and title) plus what it read on their website and socials, never Pricing or Phone. When a row has no spend figure, the app estimates a practical range (saved on the contact as `Spend` with the basis as `Spend source`, so every touch quotes the same figure and you can correct it): well-known brands use `templates/brand_reference.csv` (editable), the rest are judged from the row and their website (own domain or free mail, Instagram, products, price points, category, quick-commerce/marketplace listings, Shark Tank, retail stores). The guide's stop rules apply, and the contact says why it was skipped (with a **Write it anyway** button): no call link, a support or complaints inbox (`support@`, `care@`, `feedback@`…; `info@`, `hello@`, `contact@` are fine), a brand that isn't a fit (section 7), and rows in the brand sheet that are really clinics, hospitals, counsellors, stores or nutritionists (`brand_reference.csv` lists the ones the rules can't spot). The pre-send check allows only the sheet's spend figure. Without an API key, the guide's templates are filled in word for word. The guide has no trial, so "Mention the trial" doesn't affect brand emails.
+- **Professionals** have no template yet. Add one by putting `guide.md` and `banner.png` in `templates/professional/`, or under **Setup → Email templates** (paste the guide, upload the banner; no restart). Until then they get the built-in marketplace pitch and plain-text email.
+- **The banner:** the guide puts `[HOW_IT_WORKS_IMAGE]` on its own line where the image goes. It stays in the draft you review (Review shows the banner, and **Preview as sent** shows the whole email). When sent, the email has an HTML part with the image attached inline, resized to 1200 px wide (about 200 KB), and a plain-text part without it. If someone deletes the marker, the banner goes after the first paragraph. Follow-ups and responses go in the same thread without a banner.
+- **Meeting link:** set it under **Setup → Marketplace pitch**. It fills the guide's `{Meeting link}`; while it's blank, the ask ends with a question.
+
+### Website and social research
+
+Before Claude writes a brand's or professional's first email, the app reads their homepage: the `Website` column, or failing that their email domain (never Gmail, Yahoo, Rediff and other free-mail domains). It keeps the title, description, headings and a little body text, about 2,500 characters. It also reads one About page and one Products/Shop page if the homepage links to them, and up to three social profiles from the `Instagram / Socials` column and any links in the sheet's other columns (an `@handle` is read as Instagram). Social sites often show only a title and description, or refuse (login walls, rate limits); that's noted on the contact and the rest is used. Everything read is passed to Claude fenced off as their own marketing. Claude may use it only to be specific about what they sell, never to repeat their claims, prices or awards, and the pre-send check still blocks superlatives and health claims. Error pages, bot checks and JavaScript-only sites are skipped, and drafting simply goes ahead without the excerpt. Only public addresses are fetched. The excerpt is kept for 30 days and shown on the contact, with a **Read again** button. Turn it off under **Connections → Claude**. Template drafts (no key) don't use it.
 
 ### Replies
 

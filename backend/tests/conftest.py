@@ -7,6 +7,12 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 os.environ["OUTREACH_WORKER"] = "0"
+# Never read the developer's real .env or shell keys: tests must not send mail or call Claude.
+os.environ["OUTREACH_ENV_FILE"] = ""
+from backend.app.settings_store import ENV_FIELDS  # noqa: E402
+
+for _var in ENV_FIELDS:
+    os.environ.pop(_var, None)
 
 
 @pytest.fixture()
@@ -32,4 +38,6 @@ def configured(app_client):
         "phone": "+91 98765 43210", "tone": "warm", "address": "HSR Layout, Bengaluru 560102",
     })
     c.put("/api/settings/campaign", json={"ist_window": False, "min_delay_seconds": 0, "jitter_seconds": 0})
+    # The brand guide (brand_outreach_agent.md) won't write without a call link.
+    c.put("/api/settings/marketplace", json={"meeting_link": "https://cal.example/drtracker"})
     return c

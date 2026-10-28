@@ -5,7 +5,7 @@ from backend.app import db, worker
 from backend.app.services import drafting, inbox, outreach, prompts
 
 BRAND = {"name": "Crunchwell Foods", "email": "hello@crunchwell.test", "type": "brand", "category": "FD",
-         "description": "Millet snack bars", "city": "Mumbai"}
+         "description": "Millet snack bars", "city": "Mumbai", "spend": "18-25", "spend_source": "ad library estimate"}
 
 
 class ReplyDrafter:

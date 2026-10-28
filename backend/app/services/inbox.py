@@ -9,7 +9,7 @@ import imaplib
 import re
 from datetime import datetime, timedelta
 from email import policy
-from email.utils import getaddresses, parseaddr
+from email.utils import parseaddr
 
 MSGID_RE = re.compile(r"<[^<>\s@]+@[^<>\s]+>")
 RECIPIENT_RE = re.compile(r"^(?:Final|Original)-Recipient:\s*rfc822;\s*<?([^\s>]+@[^\s>]+)>?", re.I | re.M)
@@ -152,7 +152,3 @@ def fetch_new(settings: dict, last_uid_key: str | None, since_days: int = 30, li
             imap.logout()
         except Exception:
             pass
-
-
-def all_addresses(value: str) -> list[str]:
-    return [a.lower() for _, a in getaddresses([value]) if a]

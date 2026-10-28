@@ -18,6 +18,10 @@ COPY --chown=root:root backend ./backend
 COPY --chown=root:root frontend ./frontend
 COPY --chown=root:root scripts ./scripts
 COPY --chown=root:root samples ./samples
+# Email templates per audience (writing guide + images); Setup → Email templates can override them in /data.
+# Brands: brand_outreach_agent.md and the three product-flow screenshots at the repo root.
+COPY --chown=root:root templates ./templates
+COPY --chown=root:root ["brand_outreach_agent.md", "Step 1 – Asks in chat@2x.png", "Step 2 – Sees it first@2x.png", "Step 3 – Buys with a code@2x.png", "./"]
 
 RUN mkdir -p /data && chown app:app /data && chmod 700 /data
 

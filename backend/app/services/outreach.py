@@ -12,12 +12,12 @@ import re
 import time
 
 from .. import db, settings_store
-from . import compliance, drafting, mailer, marketplace, qa, research, schedule, specialties
+from . import compliance, drafting, mailer, marketplace, qa, research, schedule, spend, specialties, templates
 
 CONTACT_TYPES = ["doctor", "hospital", "company", "partner", "brand", "professional"]
 # Free-text contact fields set from imports and the contact form.
 TEXT_FIELDS = ["specialty", "clinic", "product", "city", "notes", "category", "partner_id", "tier", "phone",
-               "website", "description", "source_url", "needs_check"]
+               "website", "description", "source_url", "needs_check", "socials", "pricing", "spend", "spend_source", "extra"]
 CONTACT_STATUSES = ["new", "drafted", "sent", "replied", "adopted", "declined", "unsubscribed", "bounced"]
 TERMINAL = {"declined", "unsubscribed", "bounced"}
 MAX_DRAFT_ATTEMPTS = 3
@@ -140,8 +140,9 @@ def first_sent(conn, contact_id: int) -> dict | None:
     ))
 
 
-def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
-    """Write a draft for a contact (replacing any unsent one). Network call happens outside a DB transaction."""
+def draft(contact_id: int, kind: str = "initial", drafter=None, force: bool = False) -> dict:
+    """Write a draft for a contact (replacing any unsent one). Network call happens outside a DB transaction.
+    `force`: a person asked for this email after the drafter declined the row (the guide's skip rules)."""
     with db.connect() as conn:
         contact = get_contact(conn, contact_id)
         s = settings_store.get_all(conn)
@@ -151,26 +152,31 @@ def draft(contact_id: int, kind: str = "initial", drafter=None) -> dict:
         if kind == "followup" and not previous:
             raise OutreachError("No sent email to follow up on yet.")
     drafter = drafter or drafting.get_drafter(s["ai"])
-    if (kind == "initial" and getattr(drafter, "name", "") == "claude" and s["ai"].get("website_research")
+    estimating = templates.guide(contact["type"])[0] and spend.needs_estimate(contact)
+    # Claude uses the site to be specific; the spend estimate uses it to judge the brand's size.
+    if (kind == "initial" and (getattr(drafter, "name", "") == "claude" or estimating) and s["ai"].get("website_research")
             and contact["type"] in marketplace.TYPES and research.is_due(contact)):
         contact = research_contact(contact_id)
+    if templates.guide(contact["type"])[0] and spend.needs_estimate(contact):
+        contact = estimate_spend(contact_id, contact)
     try:
         if kind == "followup":
             d = drafter.followup(contact, s["sender"], s["pitches"], previous, contact["followups_sent"] + 1, s["marketplace"])
         else:
-            d = drafter.initial(contact, s["sender"], s["pitches"], s["marketplace"])
+            d = drafter.initial({**contact, "_write_anyway": force} if force else contact, s["sender"], s["pitches"], s["marketplace"])
     except Exception as raised:
         e = raised if isinstance(raised, drafting.DraftError) else drafting.DraftError(f"Unexpected drafting error: {raised}")
         # Only permanent failures count toward MAX_DRAFT_ATTEMPTS; rate limits, 5xx and
         # network blips are retried on a later tick without using up the contact's attempts.
-        attempts = "draft_attempts" if e.retryable else "draft_attempts + 1"
+        # A row the guide says to skip isn't tried again; a person can still ask for it ("Write it anyway").
+        attempts = "draft_attempts" if e.retryable else str(MAX_DRAFT_ATTEMPTS) if e.skip else "draft_attempts + 1"
         with db.connect() as conn:
             conn.execute(
                 f"UPDATE contacts SET draft_attempts = {attempts}, last_error = ?, updated_at = ? WHERE id = ?",
                 (str(e), time.time(), contact_id),
             )
-            db.log_event("draft", f"Draft failed for {contact['name']}: {e}", level="warn" if e.retryable else "error",
-                         contact_id=contact_id, conn=conn)
+            db.log_event("draft", f"{contact['name']}: {e}" if e.skip else f"Draft failed for {contact['name']}: {e}",
+                         level="warn" if e.retryable or e.skip else "error", contact_id=contact_id, conn=conn)
         if e is raised:
             raise
         raise e from raised
@@ -204,15 +210,15 @@ def research_contact(contact_id: int, force: bool = False) -> dict:
     if not force and not research.is_due(c):
         return c
     try:
-        text, url = research.research(c)
-        error = None
+        text, urls, missed = research.research(c)
+        error = "; ".join(missed) or None  # what couldn't be read, alongside what could
     except research.ResearchError as e:
-        text, url, error = c.get("site_text") or "", "", str(e)  # an older excerpt stays useful
+        text, urls, error = c.get("site_text") or "", "", str(e)  # an older excerpt stays useful
     now = time.time()
     with db.connect() as conn:
         conn.execute("UPDATE contacts SET site_text = ?, site_checked_at = ?, site_error = ?, updated_at = ? WHERE id = ?",
                      (text, now, error, now, contact_id))
-        db.log_event("research", f"Read {url} for {c['name']}" if not error else f"Website not read for {c['name']}: {error}",
+        db.log_event("research", f"Read {urls} for {c['name']}" if urls else f"Website and socials not read for {c['name']}: {error}",
                      contact_id=contact_id, conn=conn)
         return get_contact(conn, contact_id)
 
@@ -328,7 +334,7 @@ def send(message_id: int, transport=None) -> dict:
             raise OutreachError("Blocked by pre-send check: " + "; ".join(i["message"] for i in issues if i["level"] == "error"))
         s = settings_store.get_all(conn)
         cap = int(s["campaign"]["daily_cap"])
-        if used_today(conn) >= cap:
+        if cap and used_today(conn) >= cap:
             raise DailyCapReached(f"Today's daily cap of {cap} emails is reached — it resets at midnight IST.")
         claimed = conn.execute(
             "UPDATE messages SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'approved'", (time.time(), message_id)
@@ -345,15 +351,18 @@ def send(message_id: int, transport=None) -> dict:
             _mark_failed(message_id, contact, "No From address — set it under Connections.")
             raise OutreachError("No From address configured.")
         subject = m["subject"] if m["kind"] == "initial" or m["subject"].lower().startswith("re:") else f"Re: {m['subject']}"
+        images = email_images(m, contact)
+        body = m["body"] if images else strip_marker(m["body"])
         msg = mailer.build_message(
             from_email=from_email or "dry-run@localhost",
             from_name=from_name,
             to_email=contact["email"],
             to_name=contact["name"],
             subject=subject,
-            body=compliance.full_body(m["body"], s["sender"], from_email),
+            body=compliance.full_body(body, s["sender"], from_email),
             reply_to=s["email"].get("reply_to", ""),
             in_reply_to=m["in_reply_to"],
+            images=images,
         )
         try:
             transport.send(msg)
@@ -371,6 +380,30 @@ def send(message_id: int, transport=None) -> dict:
             error = f"Unexpected error while sending: {e}"
         _mark_failed(message_id, contact, error)
         raise OutreachError(error) from e
+
+
+def estimate_spend(contact_id: int, contact: dict) -> dict:
+    """The brand guide quotes last quarter's marketing spend: estimate it when the sheet has none, and save it
+    on the contact so every touch quotes the same figure and a person can correct it."""
+    low, high, basis = spend.estimate(contact)
+    with db.connect() as conn:
+        conn.execute("UPDATE contacts SET spend = ?, spend_source = ?, updated_at = ? WHERE id = ?",
+                     (spend.as_cell(low, high), basis, time.time(), contact_id))
+        db.log_event("draft", f"{contact['name']}: estimated marketing spend ₹{spend.as_cell(low, high)} lakhs ({basis})",
+                     contact_id=contact_id, conn=conn)
+        return get_contact(conn, contact_id)
+
+
+def email_images(m: dict, contact: dict) -> list:
+    """The images a message carries: first emails to an audience that has them. Follow-ups and responses go
+    in the same thread as plain text."""
+    if m["kind"] != "initial":
+        return []
+    return templates.images(contact.get("type") or "")
+
+
+def strip_marker(body: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", templates.MARKER_RE.sub("", body or "")).strip()
 
 
 def _record_sent(message_id: int, m: dict, contact: dict, msg, subject: str, transport_name: str) -> dict:

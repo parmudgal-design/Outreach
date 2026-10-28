@@ -40,7 +40,7 @@ docker compose build
 docker compose run --rm --no-deps app python -m backend.app.cli gen-key
 ```
 
-Copy the printed key into `.env` as `OUTREACH_SECRET_KEY=...`. Also set `DOMAIN` and `ACME_EMAIL`.
+Copy the printed key into `.env` as `OUTREACH_SECRET_KEY=...`. Also uncomment and set `DOMAIN` and `ACME_EMAIL`, and `OUTREACH_PUBLIC_URL`. The API key and mailbox can go in `.env` too, or be entered on the Connections page.
 
 Save the key in the team password manager now. If it is lost:
 

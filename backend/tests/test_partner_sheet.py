@@ -91,7 +91,7 @@ def test_only_not_contacted_rows_are_drafted_and_drafts_are_clean(configured):
     for m in review:
         assert not qa.has_errors(m["qa"]), (m["contact_name"], m["qa"])
         first = m["body"].splitlines()[0]
-        assert first in {"Hello Crunchwell Foods team,", "Dear Dr. Kulkarni,", "Dear Dr. Bhalla,", "Dear Kavya,", "Dear Ritika,"}, first
+        assert first in {"Hi Crunchwell Foods team,", "Dear Dr. Kulkarni,", "Dear Dr. Bhalla,", "Dear Kavya,", "Dear Ritika,"}, first
     assert c.post("/api/review/approve-clean").json()["approved"] == 5
     c.post("/api/campaign/start")
     for _ in range(5):
@@ -149,7 +149,7 @@ def test_reimport_fixes_legacy_contacts_and_replaces_stale_drafts(configured):
     """Contacts imported before the marketplace types existed (as 'partner') are corrected in place."""
     c = configured
     r = c.post("/api/contacts", json={"name": "Crunchwell Foods", "email": "hello@crunchwell.test", "type": "partner",
-                                      "product": "Millet snack bars"}).json()
+                                      "product": "Millet snack bars", "spend": "18-25", "spend_source": "ad library"}).json()
     old = c.post(f"/api/contacts/{r['id']}/draft").json()
     commit(c, upload(c))
     with db.connect() as conn:
@@ -158,7 +158,7 @@ def test_reimport_fixes_legacy_contacts_and_replaces_stale_drafts(configured):
     assert (contact["type"], contact["category"], contact["status"]) == ("brand", "FD", "new")
     worker.tick()
     fresh = next(m for m in c.get("/api/review").json() if m["contact_email"] == "hello@crunchwell.test")
-    assert fresh["body"].startswith("Hello Crunchwell Foods team,") and "reading on her" not in fresh["body"]
+    assert fresh["body"].startswith("Hi Crunchwell Foods team,") and "reading on her" not in fresh["body"]
 
 
 def test_hand_edited_draft_is_kept_on_reimport(configured):

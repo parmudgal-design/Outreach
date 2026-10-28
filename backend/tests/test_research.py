@@ -57,12 +57,12 @@ class FakeClaude:
 
 def _brand(c, **kw):
     return c.post("/api/contacts", json={"name": "Crunchwell Foods", "email": "hello@crunchwell.test", "type": "brand",
-                                          "category": "FD", **kw}).json()["id"]
+                                          "category": "FD", "spend": "18-25", "spend_source": "ad library", **kw}).json()["id"]
 
 
 def test_claude_draft_reads_the_site_once(configured, monkeypatch):
     calls = []
-    monkeypatch.setattr(research, "research", lambda c: calls.append(c["email"]) or ("Title: Crunchwell", "https://crunchwell.test/"))
+    monkeypatch.setattr(research, "research", lambda c: calls.append(c["email"]) or ("Title: Crunchwell", "https://crunchwell.test/", []))
     cid = _brand(configured)
     d = FakeClaude()
     outreach.draft(cid, drafter=d)
@@ -92,7 +92,7 @@ def test_template_drafts_and_switched_off_setting_skip_research(configured, monk
 
 
 def test_changing_the_website_clears_the_excerpt(configured, monkeypatch):
-    monkeypatch.setattr(research, "research", lambda c: ("Title: Old", "https://old.test/"))
+    monkeypatch.setattr(research, "research", lambda c: ("Title: Old", "https://old.test/", []))
     cid = _brand(configured, website="old.test")
     outreach.draft(cid, drafter=FakeClaude())
     r = configured.patch(f"/api/contacts/{cid}", json={"website": "new.test"}).json()
@@ -100,7 +100,7 @@ def test_changing_the_website_clears_the_excerpt(configured, monkeypatch):
 
 
 def test_refresh_endpoint(configured, monkeypatch):
-    monkeypatch.setattr(research, "research", lambda c: ("Title: Fresh", "https://crunchwell.test/"))
+    monkeypatch.setattr(research, "research", lambda c: ("Title: Fresh", "https://crunchwell.test/", []))
     cid = _brand(configured)
     assert configured.post(f"/api/contacts/{cid}/research").json()["site_text"] == "Title: Fresh"
 
@@ -123,7 +123,7 @@ def test_email_domains_try_www_first(monkeypatch):
         return PAGE
 
     monkeypatch.setattr(research, "fetch_html", fake_fetch)
-    text, url = research.research({"email": "hello@crunchwell.in"})
+    text, url, missed = research.research({"email": "hello@crunchwell.in"})
     assert tried == ["https://www.crunchwell.in/", "https://crunchwell.in/"] and url == "https://crunchwell.in/"
     tried.clear()
     research.research({"website": "crunchwell.in"})

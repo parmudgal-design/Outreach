@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import anthropic
 
 from .. import settings_store
-from . import greeting, marketplace, prompts, specialties
+from . import greeting, marketplace, prompts, qa, specialties, spend, templates
 
 DRAFT_SCHEMA = {
     "type": "object",
@@ -21,6 +21,18 @@ DRAFT_SCHEMA = {
         "body": {"type": "string"},
     },
     "required": ["subject", "body"],
+    "additionalProperties": False,
+}
+
+
+GUIDED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "skip_reason": {"type": "string"},
+        "subject": {"type": "string"},
+        "body": {"type": "string"},
+    },
+    "required": ["skip_reason", "subject", "body"],
     "additionalProperties": False,
 }
 
@@ -40,9 +52,11 @@ REPLY_SCHEMA = {
 class DraftError(Exception):
     """A draft could not be produced. `retryable` tells the worker whether to try again later."""
 
-    def __init__(self, message: str, retryable: bool = False):
+    def __init__(self, message: str, retryable: bool = False, skip: bool = False):
         super().__init__(message)
         self.retryable = retryable
+        # The guide says this row shouldn't be emailed (a reseller, a prescription product…): not retried.
+        self.skip = skip
 
 
 @dataclass
@@ -109,6 +123,24 @@ class ClaudeDrafter:
         return data
 
     def initial(self, contact: dict, sender: dict, pitches: dict, market: dict | None = None) -> Draft:
+        guide, _ = templates.guide(contact.get("type") or "")
+        if guide:
+            if contact.get("type") == "brand" and (reason := guide_stop(contact, _market(market))):
+                raise DraftError(f"Not written: {reason}", skip=True)
+            text = prompts.guided_initial(contact, sender, _market(market))
+            if contact.get("_write_anyway"):
+                text += ("\n\nWRITE IT ANYWAY: a person on the team has reviewed this row and overridden the guide's stop rules "
+                         "for it (inbox type, fit, anything else). Write the email following the template, and leave "
+                         "skip_reason empty.")
+            data = self._complete(text, prompts.guided_system(guide), GUIDED_SCHEMA)
+            reason = (data.get("skip_reason") or "").strip()
+            body_missing = not (data.get("subject") or "").strip() or not (data.get("body") or "").strip()
+            if reason and (not contact.get("_write_anyway") or body_missing):
+                # Asked to write it anyway and Claude still declined: say why, not "empty draft".
+                raise DraftError(f"Not written: {reason}", skip=True)
+            if body_missing:
+                raise DraftError("Claude returned an empty draft — try again.")
+            return Draft(data["subject"].strip(), data["body"].strip(), self.name)
         if contact.get("type") in marketplace.TYPES:
             text = prompts.marketplace_initial(contact, sender, _market(market))
         else:
@@ -117,6 +149,19 @@ class ClaudeDrafter:
         return Draft(data["subject"].strip(), data["body"].strip(), self.name)
 
     def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int, market: dict | None = None) -> Draft:
+        guide, _ = templates.guide(contact.get("type") or "")
+        if guide:
+            check_touch(number)
+            if contact.get("type") == "brand" and (reason := guide_stop({**contact, "_write_anyway": True}, _market(market))):
+                raise DraftError(f"Not written: {reason}", skip=True)
+            text = prompts.guided_followup(contact, sender, _market(market), previous, number)
+            data = self._complete(text, prompts.guided_system(guide), GUIDED_SCHEMA)
+            reason = (data.get("skip_reason") or "").strip()
+            if reason:
+                raise DraftError(f"Not written: {reason}", skip=True)
+            if not (data.get("body") or "").strip():
+                raise DraftError("Claude returned an empty draft — try again.")
+            return Draft(previous["subject"], data["body"].strip(), self.name)
         if contact.get("type") in marketplace.TYPES:
             text = prompts.marketplace_followup(contact, sender, _market(market), previous, number)
         else:
@@ -233,7 +278,145 @@ def marketplace_template(contact: dict, sender: dict, market: dict) -> Draft:
     return Draft(marketplace.choose(cat.subjects, seed, "s"), body, "template")
 
 
-def marketplace_followup_template(contact: dict, sender: dict, market: dict, previous: dict) -> Draft:
+# --- Brands, keyless: the brand guide's templates (brand_outreach_agent.md), filled in as written ----
+
+# A Hero Product cell made only of these words describes a category, not a product ("Protein / Sports Nutrition").
+GENERIC_HERO_WORDS = {
+    "supplement", "supplements", "health", "healthy", "nutrition", "nutraceutical", "nutraceuticals", "protein",
+    "sports", "wellness", "essential", "oil", "oils", "plant-based", "plant", "based", "ayurveda", "ayurvedic", "food",
+    "foods", "snack", "snacks", "products", "product", "range", "device", "devices", "organic", "natural", "herbal",
+    "personal", "care", "fitness", "equipment", "and", "&", "items", "beverages", "drinks", "medical", "home", "diet",
+}
+
+
+# A Hero Product cell that describes the business rather than naming a product.
+DESCRIPTION_RE = re.compile(r",|\b(products|solutions?|platform|manufactur\w*|services?|treatments?|ingredients?|equipment|"
+                            r"items|medicines|range|wellness partner|contract|b2b|wholesale|distribut\w*)\b", re.I)
+OFFER_RE = re.compile(r"\b(free|combo|offer|off|deal|sale|buy \d|\d+ ?%)\b", re.I)
+
+
+def brand_name(name: str) -> str:
+    """The name shoppers know: 'Agatsa (Bengaluru Hub)' -> 'Agatsa', 'Alphacentric Healthcare Pvt Ltd' -> 'Alphacentric Healthcare',
+    'SUNLEAF Vitamin Gummies & Supplements' -> 'SUNLEAF'."""
+    return greeting._org_name(marketplace.shop_name(name)) or (name or "").strip()
+
+
+def hero_product(cell: str, brand: str) -> str:
+    """The first product a shopper would ask for by name, or '' when the cell describes a category."""
+    cell = (cell or "").strip()
+    if not cell or all(w.strip(".,()") in GENERIC_HERO_WORDS for w in re.split(r"[\s/;,]+", cell.lower()) if w):
+        return ""
+    first = re.sub(r"\s*\([^)]*\)\s*$", "", re.split(r"\s*[;/]\s*", cell)[0]).strip()
+    if not first or len(first) > 60 or DESCRIPTION_RE.search(first) or OFFER_RE.search(first):
+        return ""
+    words = first.split()
+    if len(words) > 3 and not any(w[:1].isupper() or w[:1].isdigit() for w in words[1:]):
+        return ""  # "Ayurvedic botanical skin and hair care": a description in sentence case
+    if brand and not first.lower().startswith(brand.split()[0].lower()):
+        first = f"{brand} {first}"
+    return first
+
+
+# The brand guide (brand_outreach_agent.md) allows three touches: the first email and two follow-ups.
+MAX_TOUCHES = 3
+
+
+def check_touch(number: int) -> None:
+    if number + 1 > MAX_TOUCHES:
+        raise DraftError(f"Not written: the guide never sends more than {MAX_TOUCHES} emails to a brand.", skip=True)
+
+
+# The guide's section 3: don't send to "a generic support/complaints inbox". info@, hello@, contact@ and sales@
+# are how most of these brands take business mail, so they're fine; the inboxes below go to a ticket queue.
+SUPPORT_INBOX_RE = re.compile(
+    r"^(support|customer[._-]?support|customer[._-]?care|customercare|customer[._-]?service|care|help|helpdesk|"
+    r"complaints?|grievances?|grievance[._-]?officer|feedback|returns|refunds?|no[._-]?reply|donotreply)([._-]\w{0,6})?\d*@", re.I)
+# Services, not products a shopper can buy through the chat (they belong in the professionals list).
+SERVICE_RE = re.compile(r"\b(hospitals?|clinics?|outpatient|physiotherapy|physio|rehab(ilitation)?|cent(re|er)|dental|"
+                        r"personal training|mental health|nursing (home|service)|counsel+ing|helpline|studio|caf[eé]|"
+                        r"health services)\b|(?-i:\bOP\b)", re.I)
+# Stores and resellers can't put a brand's product first: the brand behind it is who to write to.
+STORE_RE = re.compile(r"\b(store|shop|mart|depot|supermarket)\b", re.I)
+# The guide's section 7: not a fit.
+NOT_A_FIT_RE = re.compile(
+    r"\b(alcohol\w*|beer|wines?|whisk(e)?y|vodka|rum|gin|liquor|brewer(y|ies)|distiller(y|ies)|tobacco|cigar(ette)?s?|"
+    r"vapes?|vaping|hookah|e-?cig\w*|gambling|betting|casino|prescription|rx[- ]only|schedule h)\b|"
+    r"\b(kids?|children'?s?)\b.{0,30}\bweight[- ]loss\b|\bweight[- ]loss\b.{0,30}\b(kids?|children)\b", re.I)
+
+
+def guide_stop(contact: dict, market: dict) -> str:
+    """Why the brand guide's stop rules (sections 3 and 7) say not to write to this brand, or ''."""
+    if not (market.get("meeting_link") or "").strip():
+        return "no call link yet. Add the meeting link under Setup."
+    if marketplace.spend_range(contact.get("spend") or "") is None:
+        return "no spend figure for this brand. Add “Spend last quarter (₹ lakhs)”, e.g. 18-25, to the contact."
+    if contact.get("_write_anyway"):
+        return ""
+    if SUPPORT_INBOX_RE.match(contact.get("email") or ""):
+        return f"{contact.get('email')} is a support or complaints inbox (the guide says don't send to those). Find a marketing or founder address."
+    if (ref := spend.reference(contact)) and ref.get("skip"):
+        return ref["skip"]
+    if m := STORE_RE.search(contact.get("name") or ""):
+        return f"a store or reseller (“{m.group(0)}”) rather than a brand."
+    if m := SERVICE_RE.search(contact.get("name") or ""):
+        return f"a service (“{m.group(0)}”), not a product shoppers can buy in the chat. It belongs in the professionals list."
+    what = " ".join(contact.get(k) or "" for k in ("name", "product", "description"))
+    if m := NOT_A_FIT_RE.search(what):
+        return f"not a fit for Dr. Tracker (“{m.group(0)}”, the guide's section 7)."
+    if m := qa.CURE_RE.search(contact.get("product") or ""):
+        return f"the product makes a disease-cure claim (“{m.group(0)}”, the guide's section 7)."
+    return ""
+
+
+def _guide_fill(contact: dict, sender: dict, market: dict) -> dict:
+    """The guide's inputs for the template drafter, or a skip when its stop rules say not to send."""
+    if reason := guide_stop(contact, market):
+        raise DraftError(f"Not written: {reason}", skip=True)
+    return prompts.guided_inputs(contact, sender, market, 1)
+
+
+def brand_guide_template(contact: dict, sender: dict, market: dict) -> Draft:
+    """Touch 1, filled in exactly as the guide's template has it."""
+    inp = _guide_fill(contact, sender, market)
+    brand = inp["brand_name"]
+    hero = hero_product(contact.get("product") or "", "")
+    if hero and (qa.claim_in(hero) or qa.PRICING_RE.search(hero) or qa.CURE_RE.search(hero)):
+        hero = ""  # a product name that would read as a claim or an offer ("Detox Tea")
+    low, high = marketplace.lakhs(inp["spend_low_lakhs"]), marketplace.lakhs(inp["spend_high_lakhs"])
+    subject = f"{brand}, your marketing bill for ₹{round(inp['spend_high_lakhs']):,} lakhs is ready"
+    body = "\n\n".join([
+        f"Hi {inp['contact_name'] or brand + ' team'},",
+        f"In the last quarter, your estimated range of spend on marketing was ₹{low}–{high} lakhs.",
+        f"We don't know how many customers bought {hero or 'your product'} after watching someone dance with it online.",
+        templates.screenshot_marker(1),
+        "But we can take your product directly into the inbox of your target consumer — the shopper whose diet, "
+        "taste and budget already match it.",
+        templates.screenshot_marker(2),
+        templates.screenshot_marker(3),
+        f"Set up a call with Dr. Tracker Bharat: {inp['call_link']}",
+        prompts.guided_signoff(sender, market),
+    ])
+    return Draft(subject, body, "template")
+
+
+def brand_guide_followup(contact: dict, sender: dict, market: dict, previous: dict, number: int) -> Draft:
+    """Touch 2 or 3 from the guide's follow-up sequence."""
+    check_touch(number)
+    inp = _guide_fill({**contact, "_write_anyway": True}, sender, market)
+    hello = f"Hi {inp['contact_name'] or inp['brand_name'] + ' team'},"
+    if number == 1:
+        low, high = marketplace.lakhs(inp["spend_low_lakhs"]), marketplace.lakhs(inp["spend_high_lakhs"])
+        text = (f"Quick nudge on this. One question to think about: of last quarter's ₹{low}–{high} lakhs, how much "
+                f"can you tie to an actual order?\n\nWith us, every sale comes through a code. 15 minutes to show you: {inp['call_link']}")
+    else:
+        text = ("Last note from me. If shoppers asking \"what should I buy?\" in your category is worth reaching, I'd be "
+                f"glad to walk you through it: {inp['call_link']}\n\nIf the timing's wrong, just say so and I won't follow up again.")
+    return Draft(previous["subject"], "\n\n".join([hello, text, prompts.guided_signoff(sender, market, number + 1)]), "template")
+
+
+def marketplace_followup_template(contact: dict, sender: dict, market: dict, previous: dict, number: int = 1) -> Draft:
+    if templates.guide(contact.get("type") or "")[0] and contact.get("type") == "brand":
+        return brand_guide_followup(contact, sender, market, previous, number)
     body = "\n\n".join([
         greeting.salutation(greeting.for_contact(contact), sender.get("tone")),
         "I know inboxes are busy, so I'll keep this short.",
@@ -249,6 +432,8 @@ class TemplateDrafter:
 
     def initial(self, contact: dict, sender: dict, pitches: dict, market: dict | None = None) -> Draft:
         ctype = contact.get("type") or "doctor"
+        if ctype == "brand" and templates.guide("brand")[0]:
+            return brand_guide_template(contact, sender, _market(market))
         if ctype in marketplace.TYPES:
             return marketplace_template(contact, sender, _market(market))
         seed = (contact.get("email") or contact.get("name") or "")
@@ -288,7 +473,7 @@ class TemplateDrafter:
 
     def followup(self, contact: dict, sender: dict, pitches: dict, previous: dict, number: int, market: dict | None = None) -> Draft:
         if contact.get("type") in marketplace.TYPES:
-            return marketplace_followup_template(contact, sender, _market(market), previous)
+            return marketplace_followup_template(contact, sender, _market(market), previous, number)
         body = (
             f"{legacy_greeting(contact, sender.get('tone'))}\n\n"
             "I know inboxes are relentless, so I'll keep this short.\n\n"

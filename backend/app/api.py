@@ -11,7 +11,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from . import auth, config, db, settings_store, worker
-from .services import drafting, importer, inbox, mailer, marketplace, outreach, partner_sheet, qa, schedule, specialties
+from .services import (drafting, importer, inbox, mailer, marketplace, outreach, partner_sheet, qa, schedule, specialties,
+                       templates)
 
 router = APIRouter(prefix="/api")
 
@@ -214,6 +215,10 @@ class ContactIn(BaseModel):
     needs_check: str = ""
     website: str = ""
     phone: str = ""
+    socials: str = ""
+    pricing: str = ""
+    spend: str = ""
+    spend_source: str = ""
 
 
 class ContactPatch(BaseModel):
@@ -229,6 +234,10 @@ class ContactPatch(BaseModel):
     needs_check: str | None = None
     website: str | None = None
     phone: str | None = None
+    socials: str | None = None
+    pricing: str | None = None
+    spend: str | None = None
+    spend_source: str | None = None
     # A canonical key from /api/meta, "" to go back to automatic detection.
     specialty_key: str | None = None
 
@@ -312,8 +321,8 @@ def patch_contact(contact_id: int, body: ContactPatch):
         existing = outreach.get_contact(conn, contact_id)
         if "category" in fields:
             fields["category"] = marketplace.normalise_category(fields["category"], fields.get("type") or existing["type"])
-        if any(f in fields and fields[f] != existing[f] for f in ("website", "email")):
-            # A different site: read it afresh before the next draft.
+        if any(f in fields and fields[f] != existing[f] for f in ("website", "email", "socials")):
+            # A different site or profile: read it afresh before the next draft.
             fields.update(site_text="", site_checked_at=None, site_error=None)
         if fields:
             fields["updated_at"] = time.time()
@@ -350,7 +359,8 @@ def delete_contact(contact_id: int):
 
 
 @router.post("/contacts/{contact_id}/draft")
-def draft_contact(contact_id: int, kind: str = "initial"):
+def draft_contact(contact_id: int, kind: str = "initial", force: bool = False):
+    """`force`: write the first email even though the drafter said the guide skips this row."""
     try:
         if kind == "reply":
             with db.connect() as conn:
@@ -361,7 +371,7 @@ def draft_contact(contact_id: int, kind: str = "initial"):
             if m is None:
                 raise outreach.OutreachError("Suggested responses need an Anthropic API key (Connections) with reply drafting turned on.")
         else:
-            m = outreach.draft(contact_id, kind)
+            m = outreach.draft(contact_id, kind, force=force)
     except (drafting.DraftError, outreach.OutreachError) as e:
         _err(e)
     with db.connect() as conn:
@@ -435,8 +445,15 @@ def _sheet_summary(p: dict) -> dict:
     }
 
 
+AUDIENCES = ("brand", "professional", "mixed")
+
+
 @router.post("/import/preview")
-async def import_preview(file: UploadFile = File(...)):
+async def import_preview(file: UploadFile = File(...), audience: str = Form("mixed")):
+    """`audience`: who the whole file is for — 'brand' or 'professional' (every row gets that type and that
+    audience's email template), or 'mixed' (each row's Type column decides, as before)."""
+    if audience not in AUDIENCES:
+        _err(Exception("Choose whether this spreadsheet is for brands or professionals."))
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
         _err(Exception("That file is over 10 MB."))
@@ -449,24 +466,29 @@ async def import_preview(file: UploadFile = File(...)):
         if sheet["tabs"]:
             # The founder's workbook: every city tab at once, no column mapping needed.
             with db.connect() as conn:
-                p = partner_sheet.plan(conn, sheet["rows"], settings_store.get_section("import", conn))
-            token = _store_pending("partner_workbook", filename, {"rows": sheet["rows"]})
-            return {"token": token, "filename": filename, "format": "partner_workbook", "tabs": sheet["tabs"],
+                p = partner_sheet.plan(conn, sheet["rows"], settings_store.get_section("import", conn), audience)
+            token = _store_pending("partner_workbook", filename, {"rows": sheet["rows"], "audience": audience})
+            return {"token": token, "filename": filename, "format": "partner_workbook", "audience": audience, "tabs": sheet["tabs"],
                     "skipped_tabs": sheet["skipped_tabs"], "row_count": len(sheet["rows"]), **_sheet_summary(p)}
     try:
-        headers, rows = importer.read_table(filename, data)
+        t = importer.read_tables(filename, data)
     except importer.ImportError_ as e:
         _err(e)
-    token = _store_pending("table", filename, {"headers": headers, "rows": rows})
+    headers, rows = t["headers"], t["rows"]
+    token = _store_pending("table", filename, {"headers": headers, "rows": rows, "row_tabs": t["row_tabs"], "audience": audience})
     return {
         "token": token,
         "filename": filename,
         "format": "table",
+        "audience": audience,
         "headers": headers,
         "row_count": len(rows),
         "preview": rows[:8],
         "mapping": importer.guess_mapping(headers, rows),
         "fields": importer.FIELDS,
+        # Excel: one entry per tab that was read, so the reviewer can leave a test tab out.
+        "tabs": [x for x in t["tabs"] if x["name"]],
+        "skipped_tabs": t["skipped_tabs"],
     }
 
 
@@ -474,6 +496,7 @@ class ImportCommit(BaseModel):
     token: str
     mapping: dict = Field(default_factory=dict)
     default_type: str = "doctor"
+    tabs: list[str] | None = None   # Excel tabs to import; None = all
 
 
 @router.post("/import/commit")
@@ -495,9 +518,20 @@ def import_commit(body: ImportCommit):
         if body.mapping.get("email") is None:
             _err(Exception("Pick which column holds the email address."))
         payload = pending["payload"]
-        contacts, problems = importer.to_contacts(payload["headers"], payload["rows"], body.mapping, body.default_type)
+        audience = payload.get("audience") or "mixed"
+        rows, row_tabs = payload["rows"], payload.get("row_tabs") or [""] * len(payload["rows"])
+        if body.tabs is not None:
+            keep = [i for i, t in enumerate(row_tabs) if t in body.tabs]
+            rows, row_tabs = [rows[i] for i in keep], [row_tabs[i] for i in keep]
+        contacts, problems = importer.to_contacts(payload["headers"], rows, body.mapping, body.default_type,
+                                                  audience=audience, row_tabs=row_tabs)
+        # The brand guide: a brand already in the app (another city tab, another upload) isn't emailed twice.
+        known_brands = {importer.brand_key(r["name"]): r["email"] for r in conn.execute("SELECT name, email FROM contacts WHERE type = 'brand'")}
         added = dup = opted = 0
         for c in contacts:
+            if c["type"] == "brand" and (other := known_brands.get(importer.brand_key(c["name"]))) and other != c["email"]:
+                problems.append({"name": c["name"], "reason": f"the same brand is already in your contacts ({other})"})
+                continue
             cid, reason = outreach.add_contact(conn, c, source=source)
             if cid:
                 added += 1
@@ -505,22 +539,27 @@ def import_commit(body: ImportCommit):
                 dup += 1
             else:
                 opted += 1
-        db.log_event("import", f"Imported {pending['filename']}: {added} added, {dup} duplicates, {opted} opted-out, {len(problems)} invalid rows", conn=conn)
-    return {"format": "table", "added": added, "duplicates": dup, "opted_out": opted, "invalid": problems[:50], "invalid_count": len(problems)}
+            if cid and c["type"] == "brand":
+                known_brands[importer.brand_key(c["name"])] = c["email"]
+        who = {"brand": "brands", "professional": "professionals"}.get(audience, "mixed types")
+        db.log_event("import", f"Imported {pending['filename']} ({who}): {added} added, {dup} duplicates, {opted} opted-out, "
+                               f"{len(problems)} rows skipped", conn=conn)
+    return {"format": "table", "audience": audience, "added": added, "duplicates": dup, "opted_out": opted,
+            "invalid": problems[:200], "invalid_count": len(problems)}
 
 
 @router.get("/import/template.csv")
 def import_template():
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["name", "email", "type", "specialty", "clinic", "product", "city", "notes", "website"])
-    w.writerow(["Dr. Aditi Sharma", "aditi.sharma@example.in", "doctor", "MD, DM (Cardiology)", "Sharma Heart Clinic", "", "Pune", "Runs a busy OPD; follow-up no-shows are a pain point", ""])
-    w.writerow(["Dr. Rahul Nair", "rahul.nair@example.in", "doctor", "", "Kochi Bone & Joint Centre", "", "Kochi", "Mostly knee replacements", ""])
-    w.writerow(["Dr. Rakesh Malhotra", "ms@example-hospital.in", "hospital", "Medical Superintendent", "Navjeevan Hospital", "", "Delhi", "Expanding to a second campus", ""])
-    w.writerow(["Ritu Varma", "ritu@example-diagnostics.in", "company", "Head of Partnerships", "Sanjeevani Diagnostics", "", "Mumbai", "Expanding to Tier 2 cities", ""])
-    w.writerow(["Neha Kapoor", "neha@example-devices.in", "partner", "Head of BD", "VitalSense", "VitalSense home BP monitor", "Bengaluru", "Bluetooth BP cuff with its own app", "vitalsense.example"])
-    w.writerow(["Crunchwell Foods", "hello@crunchwell.example", "brand", "Wellness food", "", "Millet snack bars with no added sugar", "Mumbai", "Partner ID B-FD-T2-MUM-01", "crunchwell.example"])
-    w.writerow(["Dt. Meenal Joshi (Green Bowl Clinic)", "meenal@greenbowl.example", "professional", "Nutritionist / dietitian", "", "Diabetes-friendly meal planning and weekly check-ins", "Hyderabad", "Partner ID P-NT-T3-HYD-01", "greenbowl.example"])
+    w.writerow(["name", "email", "type", "specialty", "clinic", "product", "city", "notes", "website", "socials"])
+    w.writerow(["Dr. Aditi Sharma", "aditi.sharma@example.in", "doctor", "MD, DM (Cardiology)", "Sharma Heart Clinic", "", "Pune", "Runs a busy OPD; follow-up no-shows are a pain point", "", ""])
+    w.writerow(["Dr. Rahul Nair", "rahul.nair@example.in", "doctor", "", "Kochi Bone & Joint Centre", "", "Kochi", "Mostly knee replacements", "", ""])
+    w.writerow(["Dr. Rakesh Malhotra", "ms@example-hospital.in", "hospital", "Medical Superintendent", "Navjeevan Hospital", "", "Delhi", "Expanding to a second campus", "", ""])
+    w.writerow(["Ritu Varma", "ritu@example-diagnostics.in", "company", "Head of Partnerships", "Sanjeevani Diagnostics", "", "Mumbai", "Expanding to Tier 2 cities", "", ""])
+    w.writerow(["Neha Kapoor", "neha@example-devices.in", "partner", "Head of BD", "VitalSense", "VitalSense home BP monitor", "Bengaluru", "Bluetooth BP cuff with its own app", "vitalsense.example", ""])
+    w.writerow(["Crunchwell Foods", "hello@crunchwell.example", "brand", "Wellness food", "", "Millet snack bars with no added sugar", "Mumbai", "Partner ID B-FD-T2-MUM-01", "crunchwell.example", "https://www.instagram.com/crunchwell.example/"])
+    w.writerow(["Dt. Meenal Joshi (Green Bowl Clinic)", "meenal@greenbowl.example", "professional", "Nutritionist / dietitian", "", "Diabetes-friendly meal planning and weekly check-ins", "Hyderabad", "Partner ID P-NT-T3-HYD-01", "greenbowl.example", ""])
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=contacts-template.csv"})
 
@@ -587,10 +626,10 @@ def retry_message(message_id: int):
 
 @router.post("/messages/{message_id}/send")
 def send_now(message_id: int):
-    """Send immediately (outside the window), but never past today's cap."""
+    """Send immediately (outside the window), but never past today's cap (if one is set)."""
     with db.connect() as conn:
         cap = int(settings_store.get_section("campaign", conn)["daily_cap"])
-        if outreach.sent_since(conn, schedule.start_of_ist_day()) >= cap:
+        if cap and outreach.sent_since(conn, schedule.start_of_ist_day()) >= cap:
             _err(Exception(f"Today's daily cap of {cap} emails is reached — it resets at midnight IST."), 429)
         m = outreach.get_message(conn, message_id)
         if m["status"] == "draft":
@@ -727,8 +766,80 @@ def preview(message_id: int):
     with db.connect() as conn:
         m = outreach.get_message(conn, message_id)
         s = settings_store.get_all(conn)
+        contact = outreach.get_contact(conn, m["contact_id"])
     from_email, _ = mailer.from_address(s["email"], s["sender"])
-    return {"subject": m["subject"], "body": compliance.full_body(m["body"], s["sender"], from_email)}
+    has_banner = m["kind"] == "initial" and templates.has_banner(contact["type"])
+    body = m["body"] if has_banner else outreach.strip_marker(m["body"])
+    urls = [f"/api/templates/{contact['type']}/image/{i}" for i in range(len(templates.images(contact["type"])))] if has_banner else []
+    full = compliance.full_body(body, s["sender"], from_email)
+    # The email as it's laid out: text and images in order, exactly as mailer.build_message places them.
+    parts = [{"image": urls[p]} if isinstance(p, int) else {"text": p} for p in templates.segments(full, len(urls))] if urls else [{"text": full}]
+    return {"subject": m["subject"], "body": full, "banner_url": urls[0] if urls else None, "image_urls": urls, "parts": parts}
+
+
+# --- Email templates (per audience: the writing guide and the banner) ---------
+
+class GuideIn(BaseModel):
+    text: str
+
+
+def _template_call(fn, *args):
+    try:
+        fn(*args)
+    except templates.TemplateError as e:
+        _err(e)
+    return templates.status()
+
+
+@router.get("/templates")
+def template_status():
+    return templates.status()
+
+
+@router.put("/templates/{audience}/guide")
+def save_template_guide(audience: str, body: GuideIn):
+    out = _template_call(templates.save_guide, audience, body.text)
+    db.log_event("settings", f"Saved the {audience} email guide")
+    return out
+
+
+@router.post("/templates/{audience}/banner")
+async def save_template_banner(audience: str, file: UploadFile = File(...)):
+    out = _template_call(templates.save_banner, audience, await file.read(), file.filename or "")
+    db.log_event("settings", f"Uploaded a new {audience} email banner ({file.filename})")
+    return out
+
+
+@router.delete("/templates/{audience}/{part}")
+def reset_template(audience: str, part: str):
+    out = _template_call(templates.reset, audience, part)
+    db.log_event("settings", f"Reset the {audience} email {part} to the built-in one")
+    return out
+
+
+@router.get("/templates/{audience}/banner.jpg")
+def template_banner(audience: str):
+    """The banner exactly as it goes into an email (resized)."""
+    try:
+        b = templates.banner(audience)
+    except templates.TemplateError as e:
+        _err(e)
+    if b is None:
+        _err(Exception("No banner for this audience yet."), 404)
+    return Response(b.data, media_type=f"image/{b.subtype}", headers={"Cache-Control": "no-cache"})
+
+
+@router.get("/templates/{audience}/image/{index}")
+def template_image(audience: str, index: int):
+    """One of a first email's images (in email order) exactly as it goes into the email."""
+    try:
+        imgs = templates.images(audience)
+    except templates.TemplateError as e:
+        _err(e)
+    if not 0 <= index < len(imgs):
+        _err(Exception("No such image for this audience."), 404)
+    b = imgs[index]
+    return Response(b.data, media_type=f"image/{b.subtype}", headers={"Cache-Control": "no-cache"})
 
 
 # --- Suppression -------------------------------------------------------------
@@ -770,7 +881,8 @@ def export_contacts():
         rows = db.rows(conn.execute("SELECT * FROM contacts ORDER BY created_at"))
     buf = io.StringIO()
     cols = ["name", "email", "type", "category", "specialty", "specialty_key", "clinic", "product", "description", "city", "notes",
-            "partner_id", "tier", "phone", "website", "needs_check", "status", "followups_sent", "last_sent_at", "replied_at", "source"]
+            "partner_id", "tier", "phone", "website", "socials", "pricing", "spend", "spend_source", "extra", "needs_check",
+            "status", "followups_sent", "last_sent_at", "replied_at", "source"]
     w = csv.writer(buf)
     w.writerow(cols)
     for r in rows:

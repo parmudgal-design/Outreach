@@ -68,15 +68,6 @@ def _header_index(rows: list[list]) -> int | None:
     return None
 
 
-def is_partner_workbook(filename: str, data: bytes) -> bool:
-    if not (filename or "").lower().endswith((".xlsx", ".xlsm")):
-        return False
-    try:
-        return bool(read(data)["tabs"])
-    except SheetError:
-        return False
-
-
 def read(data: bytes) -> dict:
     """{'tabs': [names], 'skipped_tabs': [names], 'rows': [{tab, row, cells...}]}"""
     import openpyxl
@@ -156,8 +147,9 @@ def to_contact(r: dict) -> dict:
     }
 
 
-def plan(conn, rows: list[dict], settings: dict) -> dict:
-    """What an import would do. Read-only."""
+def plan(conn, rows: list[dict], settings: dict, audience: str = "") -> dict:
+    """What an import would do. Read-only. With `audience` ('brand' or 'professional', chosen on upload),
+    rows of the other type are skipped."""
     patterns = settings.get("blocked_patterns") or []
     existing = [dict(x) for x in conn.execute("SELECT * FROM contacts")]
     by_email = {c["email"].lower(): c for c in existing}
@@ -198,6 +190,9 @@ def plan(conn, rows: list[dict], settings: dict) -> dict:
         seen_email[c["email"]] = where
         if not c["type"]:
             skip(r, "unknown type", f"Type “{r['type']}” should be B or P")
+            continue
+        if audience in marketplace.TYPES and c["type"] != audience:
+            skip(r, f"not a {audience}", f"a {c['type']} row; this upload is for {audience}s only")
             continue
         if not c["name"]:
             skip(r, "no name")

@@ -47,7 +47,7 @@ def _import(c):
     p = r.json()
     assert p["row_count"] == 4
     r = c.post("/api/import/commit", json={"token": p["token"], "mapping": p["mapping"]})
-    assert r.json() == {"format": "table", "added": 3, "duplicates": 1, "opted_out": 0, "invalid": [], "invalid_count": 0}
+    assert r.json() == {"format": "table", "audience": "mixed", "added": 3, "duplicates": 1, "opted_out": 0, "invalid": [], "invalid_count": 0}
 
 
 def test_full_pipeline_over_smtp(configured, smtp_server):

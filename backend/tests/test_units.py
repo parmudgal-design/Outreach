@@ -21,7 +21,7 @@ def test_importer_guesses_columns_and_types():
     contacts, problems = importer.to_contacts(headers, rows, mapping)
     assert [c["email"] for c in contacts] == ["aditi@x.in", "ms@nav.in"]
     assert [c["type"] for c in contacts] == ["doctor", "hospital"]
-    assert problems == [{"row": 4, "reason": "invalid email 'not-an-email'"}]
+    assert problems == [{"row": 4, "name": "Bad Row", "reason": "invalid email 'not-an-email'"}]
 
 
 def test_importer_xlsx_and_first_last_names(tmp_path):
